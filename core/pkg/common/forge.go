@@ -16,8 +16,34 @@ Fields:
   - Logger: (*logrus.Logger) Application-wide logger for consistent event tracking.
   - Config: (*config.VulkanConfig) Loaded application configurations.
 */
-type Forge struct {
+type forge struct {
 	DB     *sql.DB
 	Logger *logrus.Logger
 	Config *config.VulkanConfig
+}
+
+type Forge interface {
+	GetDB() *sql.DB
+	GetLogger() *logrus.Logger
+	GetConfig() *config.VulkanConfig
+}
+
+func NewForge(db *sql.DB, logger *logrus.Logger, config *config.VulkanConfig) Forge {
+	return &forge{
+		DB:     db,
+		Logger: logger,
+		Config: config,
+	}
+}
+
+func (f *forge) GetDB() *sql.DB {
+	return f.DB
+}
+
+func (f *forge) GetLogger() *logrus.Logger {
+	return f.Logger
+}
+
+func (f *forge) GetConfig() *config.VulkanConfig {
+	return f.Config
 }

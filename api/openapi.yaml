@@ -2,19 +2,16 @@ openapi: 3.0.3
 info:
   title: vulkan API
   version: "0.1.0"
-  description: >
-    REST contract for the control-plane backend.  
+  description: |
+    REST contract for the control‑plane backend.
     Authentication is via JWT bearer tokens (OIDC).
-
 servers:
   - url: https://cp.example.com
     description: Production
   - url: http://localhost:9321
     description: Local dev
-
 security:
-  - bearerAuth: [ ]
-
+  - bearerAuth: []
 components:
   securitySchemes:
     bearerAuth:
@@ -23,17 +20,55 @@ components:
       bearerFormat: JWT
 
   parameters:
+    # ----- reusable query parameters -------------------------------------
     Page:
       in: query
       name: page
-      schema: { type: integer, minimum: 1, default: 1 }
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
     PerPage:
       in: query
       name: per_page
-      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
+    # ----- reusable path parameters --------------------------------------
+    OrgId:
+      name: orgId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AppId:
+      name: appId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ClusterId:
+      name: clusterId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
 
   schemas:
-    ## --- Core resource objects -------------------------------------------
+    ## --- Core resource objects -----------------------------------------
     Org:
       type: object
       required: [id, name, created_at]
@@ -72,15 +107,17 @@ components:
         status:      { type: string, enum: [provisioning, ready, error] }
         created_at:  { type: string, format: date-time }
 
-    ## --- Envelopes --------------------------------------------------------
+    ## --- Envelopes ------------------------------------------------------
     SingleResponse:
       type: object
       required: [data]
       properties:
-        data: { oneOf: [ { $ref: '#/components/schemas/Org' },
-                         { $ref: '#/components/schemas/Project' },
-                         { $ref: '#/components/schemas/App' },
-                         { $ref: '#/components/schemas/Cluster' } ] }
+        data:
+          oneOf:
+            - { $ref: '#/components/schemas/Org' }
+            - { $ref: '#/components/schemas/Project' }
+            - { $ref: '#/components/schemas/App' }
+            - { $ref: '#/components/schemas/Cluster' }
 
     ListResponse:
       type: object
@@ -88,15 +125,17 @@ components:
       properties:
         data:
           type: array
-          items: { oneOf: [ { $ref: '#/components/schemas/Org' },
-                            { $ref: '#/components/schemas/Project' },
-                            { $ref: '#/components/schemas/App' },
-                            { $ref: '#/components/schemas/Cluster' } ] }
+          items:
+            oneOf:
+              - { $ref: '#/components/schemas/Org' }
+              - { $ref: '#/components/schemas/Project' }
+              - { $ref: '#/components/schemas/App' }
+              - { $ref: '#/components/schemas/Cluster' }
         next_cursor:
           type: string
           nullable: true
 
-    ## --- Create / Patch payloads -----------------------------------------
+    ## --- Create / Patch payloads ---------------------------------------
     CreateOrg:
       type: object
       required: [name]
@@ -131,142 +170,217 @@ components:
         name: { type: string, minLength: 3, maxLength: 64 }
 
 paths:
-  ## ---- ORGS --------------------------------------------------------------
+  ## ---- ORGS ------------------------------------------------------------
   /orgs:
     post:
       summary: Create an organisation
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/CreateOrg' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrg' }
       responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     get:
       summary: List organisations
-      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PerPage' }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
 
   /orgs/{orgId}:
     parameters:
-      - name: orgId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
+      - { $ref: '#/components/parameters/OrgId' }
     get:
       summary: Get one org
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     patch:
       summary: Rename org
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/PatchName' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchName' }
       responses:
-        "200": { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     delete:
       summary: Delete org
       responses:
         "204": { description: Deleted }
 
-  ## ---- PROJECTS ----------------------------------------------------------
   /orgs/{orgId}/projects:
+    parameters:
+      - { $ref: '#/components/parameters/OrgId' }
     post:
       summary: Create project
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/CreateProject' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProject' }
       responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     get:
       summary: List projects in org
-      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PerPage' }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
 
+  ## ---- PROJECTS --------------------------------------------------------
   /projects/{projectId}:
     parameters:
-      - name: projectId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
+      - { $ref: '#/components/parameters/ProjectId' }
     get:
       summary: Get project
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     patch:
       summary: Rename project
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/PatchName' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchName' }
       responses:
-        "200": { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     delete:
       summary: Delete project
       responses:
         "204": { description: Deleted }
 
-  ## ---- APPS --------------------------------------------------------------
   /projects/{projectId}/apps:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
     post:
       summary: Create app
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/CreateApp' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateApp' }
       responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     get:
       summary: List apps in project
-      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PerPage' }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
 
   /apps/{appId}:
     parameters:
-      - name: appId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
+      - { $ref: '#/components/parameters/AppId' }
     get:
       summary: Get app
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     patch:
       summary: Rename app
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/PatchName' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchName' }
       responses:
-        "200": { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     delete:
       summary: Delete app
       responses:
         "204": { description: Deleted }
 
-  ## ---- CLUSTERS ----------------------------------------------------------
+  ## ---- CLUSTERS --------------------------------------------------------
   /projects/{projectId}/clusters:
+    parameters:
+      - { $ref: '#/components/parameters/ProjectId' }
     post:
       summary: Create or attach cluster
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/CreateCluster' } } }
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCluster' }
       responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     get:
       summary: List clusters in project
-      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PerPage' }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListResponse' }
 
   /clusters/{clusterId}:
     parameters:
-      - name: clusterId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
+      - { $ref: '#/components/parameters/ClusterId' }
     get:
       summary: Get cluster
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleResponse' }
     delete:
       summary: Delete cluster
       responses:

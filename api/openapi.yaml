@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: vulkan API
+  version: "0.1.0"
+  description: >
+    REST contract for the control-plane backend.  
+    Authentication is via JWT bearer tokens (OIDC).
+
+servers:
+  - url: https://cp.example.com
+    description: Production
+  - url: http://localhost:9321
+    description: Local dev
+
+security:
+  - bearerAuth: [ ]
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      in: query
+      name: per_page
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+
+  schemas:
+    ## --- Core resource objects -------------------------------------------
+    Org:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:          { type: string, format: uuid }
+        name:        { type: string, minLength: 3, maxLength: 64 }
+        created_at:  { type: string, format: date-time }
+
+    Project:
+      type: object
+      required: [id, org_id, name, created_at]
+      properties:
+        id:          { type: string, format: uuid }
+        org_id:      { type: string, format: uuid }
+        name:        { type: string, minLength: 3, maxLength: 64 }
+        created_at:  { type: string, format: date-time }
+
+    App:
+      type: object
+      required: [id, project_id, name, repo_url, created_at]
+      properties:
+        id:          { type: string, format: uuid }
+        project_id:  { type: string, format: uuid }
+        name:        { type: string, minLength: 3, maxLength: 64 }
+        repo_url:    { type: string, format: uri }
+        created_at:  { type: string, format: date-time }
+
+    Cluster:
+      type: object
+      required: [id, project_id, name, type, status, created_at]
+      properties:
+        id:          { type: string, format: uuid }
+        project_id:  { type: string, format: uuid }
+        name:        { type: string, minLength: 3, maxLength: 64 }
+        type:        { type: string, enum: [attached, eks] }
+        status:      { type: string, enum: [provisioning, ready, error] }
+        created_at:  { type: string, format: date-time }
+
+    ## --- Envelopes --------------------------------------------------------
+    SingleResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { oneOf: [ { $ref: '#/components/schemas/Org' },
+                         { $ref: '#/components/schemas/Project' },
+                         { $ref: '#/components/schemas/App' },
+                         { $ref: '#/components/schemas/Cluster' } ] }
+
+    ListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { oneOf: [ { $ref: '#/components/schemas/Org' },
+                            { $ref: '#/components/schemas/Project' },
+                            { $ref: '#/components/schemas/App' },
+                            { $ref: '#/components/schemas/Cluster' } ] }
+        next_cursor:
+          type: string
+          nullable: true
+
+    ## --- Create / Patch payloads -----------------------------------------
+    CreateOrg:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 64 }
+
+    CreateProject:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 64 }
+
+    CreateApp:
+      type: object
+      required: [name, repo_url]
+      properties:
+        name:     { type: string, minLength: 3, maxLength: 64 }
+        repo_url: { type: string, format: uri }
+
+    CreateCluster:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 64 }
+        type: { type: string, enum: [attached, eks] }
+        # only when type=attached
+        kubeconfig: { type: string, description: base64-encoded kubeconfig, nullable: true }
+
+    PatchName:
+      type: object
+      properties:
+        name: { type: string, minLength: 3, maxLength: 64 }
+
+paths:
+  ## ---- ORGS --------------------------------------------------------------
+  /orgs:
+    post:
+      summary: Create an organisation
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateOrg' } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    get:
+      summary: List organisations
+      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+
+  /orgs/{orgId}:
+    parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get one org
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    patch:
+      summary: Rename org
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PatchName' } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    delete:
+      summary: Delete org
+      responses:
+        "204": { description: Deleted }
+
+  ## ---- PROJECTS ----------------------------------------------------------
+  /orgs/{orgId}/projects:
+    post:
+      summary: Create project
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateProject' } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    get:
+      summary: List projects in org
+      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+
+  /projects/{projectId}:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get project
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    patch:
+      summary: Rename project
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PatchName' } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    delete:
+      summary: Delete project
+      responses:
+        "204": { description: Deleted }
+
+  ## ---- APPS --------------------------------------------------------------
+  /projects/{projectId}/apps:
+    post:
+      summary: Create app
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateApp' } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    get:
+      summary: List apps in project
+      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+
+  /apps/{appId}:
+    parameters:
+      - name: appId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get app
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    patch:
+      summary: Rename app
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PatchName' } } }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    delete:
+      summary: Delete app
+      responses:
+        "204": { description: Deleted }
+
+  ## ---- CLUSTERS ----------------------------------------------------------
+  /projects/{projectId}/clusters:
+    post:
+      summary: Create or attach cluster
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateCluster' } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    get:
+      summary: List clusters in project
+      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ListResponse' } } } }
+
+  /clusters/{clusterId}:
+    parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get cluster
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SingleResponse' } } } }
+    delete:
+      summary: Delete cluster
+      responses:
+        "204": { description: Deleted }

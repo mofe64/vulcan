@@ -1,0 +1,34 @@
+global:
+  imagePullPolicy: IfNotPresent
+
+# ==================== Vulkan API ====================
+api:
+  image:
+    repository: ghcr.io/your-org/vulkan-api
+    tag: 0.1.0
+  replicas: 2
+  ingress:
+    enabled: true
+    host: cp.example.com
+    tlsSecret: cp-tls
+  env:
+    OIDCJWKSURL: "https://dex.example.com/keys"
+    K8S_IN_CLUSTER: "true"
+    DATABASE_URL: "postgres://paas:******@pgbouncer:6432/paas?sslmode=require" # replace with your actual database URL
+    OPA_URL: "http://127.0.0.1:8181"
+    OPA_POLICY_PATH: "/data/api/authz/allow"
+    NATS_URL: "nats://nats:4222"
+
+# ==================== Cross-chart overrides ====================
+nats:                               # alias defined in Chart.yaml
+  nats:
+    jetstream:
+      enabled: true                 # turn on persistence & streams
+    auth:
+      enabled: false                # disable auth for simplicity
+    resources:
+      limits:
+        memory: 256Mi
+  cluster:
+    enabled: true
+    replicas: 1

@@ -26,6 +26,10 @@ creating crds
 `kubebuilder create api --group platform --version v1alpha1 --kind Application`
 `kubebuilder create api --group platform --version v1alpha1 --kind Cluster   --namespaced=false`
 
+Generate crds
+`cd operator`
+`make manifests` or `make all`
+
 generate work file to link modules -> `go work init ./ ./operator`
 
 ## debug
@@ -51,3 +55,12 @@ Run go generate / make generate in operator/
 This regenerates zz_generated.deepcopy.go and ensures AddToScheme exists before the root module builds.
 
 Once the path is imported correctly and the operator code is generated, platformv1.AddToScheme will resolve and the client will be able to serialise / deserialise your CRDs.
+
+### OPA Config
+
+OPAURL -> eg. http://127.0.0.1:8181 (side-car), http://opa.platform.svc:8181 (cluster-wide)
+The base URL of the running OPA server that will evaluate your query. This is set to wherever you decided to run OPA: usually a side-car listening on 8181, or a central OPA Service in the cluster.
+
+PolicyPath -> eg. data/api/authz/allow
+The REST endpoint under /v1/… that maps to one specific rule inside your bundle. It is built from:
+data + package path + rule name → for module package api.authz, rule allow, the path is data/api/authz/allow.

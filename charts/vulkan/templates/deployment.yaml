@@ -1,0 +1,35 @@
+containers:
+  - name: api
+    image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+    env:
+      - name: OPA_URL
+        value: "{{ .Values.api.env.OPA_URL }}"
+      - name: OPA_POLICY_PATH
+        value: "{{ .Values.api.env.OPA_POLICY_PATH }}"
+      - name: NATS_URL
+        value: { { .Values.api.env.NATS_URL | quote } }
+      - name: OIDCJWKSURL
+        value: "{{ .Values.api.env.OIDCJWKSURL }}"
+      - name: K8S_IN_CLUSTER
+        value: "{{ .Values.api.env.K8S_IN_CLUSTER }}"
+      - name: DATABASE_URL
+        value: "{{ .Values.api.env.DATABASE_URL }}"
+    imagePullPolicy: { { .Values.global.imagePullPolicy } }
+
+    ports:
+      - containerPort: 8080
+  - name: opa
+    image: openpolicyagent/opa:0.60.0-rootless
+    args:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--ignore=.*" # don't watch non-policy files
+      - "/policies"
+    volumeMounts:
+      - name: opa-bundle
+        mountPath: /policies
+volumes:
+  - name: opa-bundle
+    configMap:
+      name: opa-policy-bundle

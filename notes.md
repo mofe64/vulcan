@@ -64,3 +64,7 @@ The base URL of the running OPA server that will evaluate your query. This is se
 PolicyPath -> eg. data/api/authz/allow
 The REST endpoint under /v1/… that maps to one specific rule inside your bundle. It is built from:
 data + package path + rule name → for module package api.authz, rule allow, the path is data/api/authz/allow.
+
+### helm repos
+
+cert-manager -> helm repo add jetstack https://charts.jetstack.io

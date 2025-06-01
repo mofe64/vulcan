@@ -1,16 +1,30 @@
 global:
   imagePullPolicy: IfNotPresent
+  domain: vulkan.strawhatengineer.com
 
-# ==================== Vulkan API ====================
+# vulkan ui
+ui:
+  replicas: 2
+  image:
+    repository: ghcr.io/your-org/vulkan-ui
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  apiBase: "http://vulkan-api.vulkan.svc.cluster.local:8080"
+
+  ingress:
+    enabled: true
+    host: vulkan.strawhatengineer.com
+    className: nginx
+    tlsSecret: vulkan-tls      # cert-manager will fill this
+    annotations:               # extra NGINX tweaks (optional)
+      nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+
+# vulkan api
 api:
   image:
     repository: ghcr.io/your-org/vulkan-api
     tag: 0.1.0
   replicas: 2
-  ingress:
-    enabled: true
-    host: cp.example.com
-    tlsSecret: cp-tls
   env:
     OIDCJWKSURL: "https://dex.example.com/keys"
     K8S_IN_CLUSTER: "true"
@@ -18,6 +32,26 @@ api:
     OPA_URL: "http://127.0.0.1:8181"
     OPA_POLICY_PATH: "/data/api/authz/allow"
     NATS_URL: "nats://nats:4222"
+    clientSecret: "a-very-strong-and-unique-secret-for-vulkan-api" # Replace with k8s secret impl
+
+
+# vulkan cert-manager
+certmanager:          # alias in Chart.yaml
+  installCRDs: true
+
+# vulkan nginx
+nginx:
+  controller:
+    publishService:
+      enabled: true          # makes cloud LB get an external IP
+    extraArgs:
+      default-ssl-certificate: "vulkan/vulkan-tls"
+    service:
+      annotations:           # example for AWS ELB idle timeout
+        service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
+
+
+
 
 # ==================== Cross-chart overrides ====================
 nats:                               # alias defined in Chart.yaml
@@ -32,3 +66,40 @@ nats:                               # alias defined in Chart.yaml
   cluster:
     enabled: true
     replicas: 1
+
+dex:
+  enabled: true
+  apiClientSecret: "CHANGE_ME_STRONG_STRING" # Replace with k8s secret impl
+
+  # config provided here will be copied directly into dex.yaml in the dex pod.
+  config: |
+    issuer: https://dex.{{ .Values.global.domain }}/dex
+    storage:
+      type: kubernetes
+      config:
+        inCluster: true
+
+    staticClients:
+    - id: vulkan-api
+      name: Vulkan API
+      secret: {{ .Values.dex.apiClientSecret | quote }}
+      redirectURIs:
+      - https://vulkan.strawhatengineer.com/callback
+      # For local development, localhost is fine. "http://localhost:8080/callback"
+      
+     
+    connectors:
+    - type: github
+      id: github
+      name: GitHub
+      config:
+        # These values should be provided securely, e.g., through Helm values sourced from Kubernetes Secrets.
+        clientID: {{ .Values.githubConnector.clientID | quote }}
+        clientSecret: {{ .Values.githubConnector.clientSecret | quote }}
+        redirectURI: https://dex.{{ .Values.global.domain }}/dex/callback # Ensure this path is correct and matches GitHub OAuth app settings.
+
+# It's highly recommended to manage this secret using Kubernetes secrets.
+# For example, if using a plain value (less secure for production):
+githubConnector:
+  clientID: "your_github_oauth_app_client_id"
+  clientSecret: "your_github_oauth_app_client_secret"

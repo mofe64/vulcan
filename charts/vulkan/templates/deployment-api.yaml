@@ -1,17 +1,18 @@
-{{- $fullName := include "vulkan.fullname" . -}}
-{{- $apiName   := printf "%s-api" $fullName -}}
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $apiName }}
+  name: {{ include "vulkan.apiDeploymentName" . }}
   labels:
     {{- include "vulkan.labels" . | nindent 4 }}
-    app.kubernetes.io/name: {{ $apiName }}
+    app.kubernetes.io/name: {{ include "vulkan.apiDeploymentName" . }}
     app.kubernetes.io/component: api-server
-    app.kubernetes.io/part-of: {{ $fullName }}
+    app.kubernetes.io/part-of: {{ include "vulkan.fullname" . }}
 spec:
   replicas: {{ .Values.api.replicas | default 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "vulkan.apiDeploymentName" . }}
+      
   template:
     spec:
       containers:

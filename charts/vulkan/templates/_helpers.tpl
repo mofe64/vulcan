@@ -60,3 +60,29 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+
+{{/* define ui deployment name */}}
+{{- define "vulkan.uiDeploymentName" -}}
+{{- printf "%s-ui-deployment" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* define ui service name */}}
+{{- define "vulkan.uiServiceName" -}}
+{{- printf "%s-ui-service" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* define api deployment name */}}
+{{- define "vulkan.apiDeploymentName" -}}
+{{- printf "%s-api" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* define api service name */}}
+{{- define "vulkan.apiServiceName" -}}
+{{- printf "%s-api" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* define ui ingress name */}}
+{{- define "vulkan.uiIngressName" -}}
+{{- printf "%s-ui-ingress" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}

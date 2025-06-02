@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: { { include "vulkan.fullname" . } }
-  labels: { { - include "vulkan.labels" . | nindent 4 } }
+  name: {{ include "vulkan.apiServiceName" . }}
+  labels: {{- include "vulkan.labels" . | nindent 4 }}
 spec:
-  type: { { .Values.service.type } }
+  type: {{ .Values.api.service.type }}
   ports:
-    - port: { { .Values.service.port } }
+    - port: {{ .Values.api.service.port }}
       targetPort: http
       protocol: TCP
       name: http
-  selector: { { - include "vulkan.selectorLabels" . | nindent 4 } }
+  selector: {{- include "vulkan.selectorLabels" . | nindent 4 }}

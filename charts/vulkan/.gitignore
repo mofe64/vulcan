@@ -1,0 +1,8 @@
+*.tgz
+charts/*
+!charts/.gitkeep
+Chart.lock
+values*.local.yaml
+values*.secret.yaml
+secrets*.yaml
+rendered/

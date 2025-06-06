@@ -1,6 +1,23 @@
 global:
   imagePullPolicy: IfNotPresent
   domain: vulkan.strawhatengineer.com
+  email: ogunbiyioladapo33@gmail.com
+  ingress:
+    className: nginx
+
+# autoscaling config
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# vulkan service account
+serviceAccount:
+  create: true
+  name: vulkan-service-account
+  annotations: {}
+  automount: true
 
 # vulkan ui
 ui:
@@ -9,14 +26,20 @@ ui:
     repository: ghcr.io/your-org/vulkan-ui
     tag: "0.1.0"
     pullPolicy: IfNotPresent
-  apiBase: "http://vulkan-api.vulkan.svc.cluster.local:8080"
+  apiBase: "https://api.vulkan.strawhatengineer.com"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
 
   ingress:
     enabled: true
     host: vulkan.strawhatengineer.com
-    className: nginx
     tlsSecret: vulkan-tls      # cert-manager will fill this
-    annotations:               # extra NGINX tweaks (optional)
+    annotations:  # extra NGINX tweaks (optional)             
       nginx.ingress.kubernetes.io/proxy-body-size: "25m"
 
 # vulkan api
@@ -24,15 +47,24 @@ api:
   image:
     repository: ghcr.io/your-org/vulkan-api
     tag: 0.1.0
-  replicas: 2
+  replicas: 3
+  service:
+    type: ClusterIP
+    port: 8080
   env:
-    OIDCJWKSURL: "https://dex.example.com/keys"
+    OIDCJWKSURL: "https://dex.{{ .Values.global.domain }}/dex/keys"
     K8S_IN_CLUSTER: "true"
     DATABASE_URL: "postgres://paas:******@pgbouncer:6432/paas?sslmode=require" # replace with your actual database URL
     OPA_URL: "http://127.0.0.1:8181"
     OPA_POLICY_PATH: "/data/api/authz/allow"
     NATS_URL: "nats://nats:4222"
     clientSecret: "a-very-strong-and-unique-secret-for-vulkan-api" # Replace with k8s secret impl
+  ingress:
+    enabled: true
+    host: api.vulkan.strawhatengineer.com
+    tlsSecret: vulkan-api-tls  # cert-manager will fill this
+    annotations:               # extra NGINX tweaks
+      nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 
 
 # vulkan cert-manager
@@ -80,12 +112,18 @@ dex:
         inCluster: true
 
     staticClients:
-    - id: vulkan-api
-      name: Vulkan API
-      secret: {{ .Values.dex.apiClientSecret | quote }}
-      redirectURIs:
-      - https://vulkan.strawhatengineer.com/callback
-      # For local development, localhost is fine. "http://localhost:8080/callback"
+      - id: vulkan-ui
+        name: Vulkan UI
+        public: true
+        redirectURIs:
+          - https://vulkan.strawhatengineer.com/callback
+          
+
+      - id: vulkan-api
+        name: Vulkan API
+        secret: {{ .Values.dex.apiClientSecret | quote }}
+        redirectURIs:
+        - https://vulkan.strawhatengineer.com/callback
       
      
     connectors:

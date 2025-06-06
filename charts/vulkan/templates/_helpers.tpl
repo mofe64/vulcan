@@ -86,3 +86,8 @@ Create the name of the service account to use
 {{- define "vulkan.uiIngressName" -}}
 {{- printf "%s-ui-ingress" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
+
+{{/* define api ingress name */}}
+{{- define "vulkan.apiIngressName" -}}
+{{- printf "%s-api-ingress" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}

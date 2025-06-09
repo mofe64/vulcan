@@ -10,6 +10,7 @@ rules:
   - applications
   - clusters
   - orgs
+  - projectclusterbindings
   - projects
   verbs:
   - create
@@ -25,6 +26,7 @@ rules:
   - applications/finalizers
   - clusters/finalizers
   - orgs/finalizers
+  - projectclusterbindings/finalizers
   - projects/finalizers
   verbs:
   - update
@@ -34,6 +36,7 @@ rules:
   - applications/status
   - clusters/status
   - orgs/status
+  - projectclusterbindings/status
   - projects/status
   verbs:
   - get

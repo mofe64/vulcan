@@ -6,6 +6,7 @@ resources:
 - bases/platform.platform.io_projects.yaml
 - bases/platform.platform.io_applications.yaml
 - bases/platform.platform.io_clusters.yaml
+- bases/platform.platform.io_projectclusterbindings.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

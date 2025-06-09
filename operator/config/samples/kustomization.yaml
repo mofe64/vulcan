@@ -4,4 +4,5 @@ resources:
 - platform_v1alpha1_project.yaml
 - platform_v1alpha1_application.yaml
 - platform_v1alpha1_cluster.yaml
+- platform_v1alpha1_projectclusterbinding.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

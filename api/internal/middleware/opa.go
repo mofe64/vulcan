@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mofe64/vulkan/internal/config"
+	"github.com/mofe64/vulkan/api/internal/config"
 )
 
 func NewOPAAuth(cfg config.VulkanConfig) gin.HandlerFunc {

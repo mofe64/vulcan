@@ -8,4 +8,38 @@ layout:
 - go.kubebuilder.io/v4
 projectName: operator
 repo: github.com/mofe64/vulkan/operator
+resources:
+- api:
+    crdVersion: v1
+  controller: true
+  domain: platform.io
+  group: platform
+  kind: Org
+  path: github.com/mofe64/vulkan/operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+  controller: true
+  domain: platform.io
+  group: platform
+  kind: Project
+  path: github.com/mofe64/vulkan/operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: platform.io
+  group: platform
+  kind: Application
+  path: github.com/mofe64/vulkan/operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+  controller: true
+  domain: platform.io
+  group: platform
+  kind: Cluster
+  path: github.com/mofe64/vulkan/operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

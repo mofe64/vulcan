@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mofe64/vulkan/internal/auth"
+	"github.com/mofe64/vulkan/api/internal/auth"
 )
 
 func RequireAuth(va *auth.VulkanAuth) gin.HandlerFunc {

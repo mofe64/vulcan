@@ -1,4 +1,4 @@
-module github.com/mofe64/vulkan
+module github.com/mofe64/vulkan/api
 
 go 1.24.2
 
@@ -180,6 +180,10 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
+)
+
+replace (
+	github.com/mofe64/vulkan/operator => ../operator
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen

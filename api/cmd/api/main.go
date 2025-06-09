@@ -10,41 +10,49 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mofe64/vulkan/internal/auth"
-	"github.com/mofe64/vulkan/internal/config"
-	"github.com/mofe64/vulkan/internal/db"
-	"github.com/mofe64/vulkan/internal/db/migrations"
-	"github.com/mofe64/vulkan/internal/db/repository"
-	"github.com/mofe64/vulkan/internal/events"
-	"github.com/mofe64/vulkan/internal/handlers"
-	"github.com/mofe64/vulkan/internal/k8s"
-	"github.com/mofe64/vulkan/internal/logger"
-	"github.com/mofe64/vulkan/internal/middleware"
-	"github.com/mofe64/vulkan/internal/server"
-	"github.com/mofe64/vulkan/internal/service"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mofe64/vulkan/api/internal/auth"
+	"github.com/mofe64/vulkan/api/internal/config"
+	"github.com/mofe64/vulkan/api/internal/db"
+	"github.com/mofe64/vulkan/api/internal/db/migrations"
+	"github.com/mofe64/vulkan/api/internal/db/repository"
+	"github.com/mofe64/vulkan/api/internal/events"
+	"github.com/mofe64/vulkan/api/internal/handlers"
+	"github.com/mofe64/vulkan/api/internal/k8s"
+	"github.com/mofe64/vulkan/api/internal/logger"
+	"github.com/mofe64/vulkan/api/internal/middleware"
+	"github.com/mofe64/vulkan/api/internal/routes"
+	"github.com/mofe64/vulkan/api/internal/service"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"go.uber.org/zap"
 )
 
-func main() {
+type DependencyContainer struct {
+	Database  *pgxpool.Pool
+	Auth      *auth.VulkanAuth
+	K8sClient client.Client
+	EventBus  *events.EventBus
+	log       *zap.Logger
+	cfg       *config.VulkanConfig
+}
+
+func initializeDependencies() *DependencyContainer {
+
 	log := logger.Get()
-
-	// root context: cancelled on SIGINT/SIGTERM
-	appCtx, appCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer appCancel() // just in case main exits without a signal
-
-	// short-lived context for start-up I/O
-	startupCtx, cancelTimeout := context.WithTimeout(appCtx, 10*time.Second)
+	// short-lived context for start-up ops
+	startupCtx, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelTimeout()
 
 	// load config
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
 	// connect to db
-	db, err := db.Connect(startupCtx, cfg.DBURL)
+	database, err := db.Connect(startupCtx, cfg.DBURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database", zap.Error(err))
 	}
@@ -71,30 +79,50 @@ func main() {
 		log.Fatal("Failed to create event bus", zap.Error(err))
 	}
 
-	orgSvc := service.NewOrgService(db, k8sClient, log, bus)
-	userRepository := repository.NewUserRepo(db)
-	tokenRepository := repository.NewTokenRepo(db)
-	authHandler := handlers.NewAuthHandler(auth, tokenRepository, userRepository)
-
-	// create the Vulkan server
-	vulkanServer, err := server.NewVulkanServer(orgSvc, log)
-	if err != nil {
-		log.Fatal("Failed to create Vulkan server", zap.Error(err))
+	return &DependencyContainer{
+		Database:  database,
+		Auth:      auth,
+		K8sClient: k8sClient,
+		EventBus:  bus,
+		log:       log,
+		cfg:       cfg,
 	}
+
+}
+
+func main() {
 	r := gin.Default()
 	// r.Use(cors.Default())
-
 	r.Use(gin.Recovery())
 
-	r.POST("/api/auth/exchange", authHandler.ExchangeCodeForToken())
-	r.POST("/api/auth/refresh", authHandler.RefreshToken())
+	applicationDependencies := initializeDependencies()
+	database := applicationDependencies.Database
+	auth := applicationDependencies.Auth
+	k8sClient := applicationDependencies.K8sClient
+	bus := applicationDependencies.EventBus
+	log := applicationDependencies.log
+	cfg := applicationDependencies.cfg
+
+	userRepository := repository.NewUserRepo(database)
+	tokenRepository := repository.NewTokenRepo(database)
+
+	// not using org service yet, but initializing it for future use
+	_ = service.NewOrgService(database, k8sClient, log, bus)
+
+	authService := service.NewAuthService(auth, tokenRepository, userRepository)
+	authHandler := handlers.NewAuthHandler(auth, authService)
+
+	// Set up ping route
+	r.GET("/ping", func(c *gin.Context) {
+		c.String(200, "pong")
+	})
+
+	routes.RegisterAuthRoutes(r, authHandler)
 
 	// jwt middleware
 	r.Use(middleware.RequireAuth(auth))
 	// opa middleware
 	r.Use(middleware.NewOPAAuth(*cfg))
-
-	server.RegisterHandlers(r, &vulkanServer)
 
 	vulkanServerPort := cfg.VulkanServerPort
 	s := &http.Server{

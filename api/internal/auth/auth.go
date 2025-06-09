@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/mofe64/vulkan/internal/config"
+	"github.com/mofe64/vulkan/api/internal/config"
 	"golang.org/x/oauth2"
 )
 

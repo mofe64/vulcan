@@ -25,6 +25,7 @@ creating crds
 `kubebuilder create api --group platform --version v1alpha1 --kind Project   --namespaced=false`
 `kubebuilder create api --group platform --version v1alpha1 --kind Application`
 `kubebuilder create api --group platform --version v1alpha1 --kind Cluster   --namespaced=false`
+`kubebuilder create api --group platform --version v1alpha1 --kind ProjectClusterBinding --namespaced=false`
 
 Generate crds
 `cd operator`

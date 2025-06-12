@@ -24,6 +24,7 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +40,7 @@ import (
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	"github.com/mofe64/vulkan/operator/internal/controller"
+	"github.com/mofe64/vulkan/operator/internal/util"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -202,6 +204,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// build TargetClientFactory for cluster crds
+	targetClientFactory := util.NewTargetClientFactory(mgr.GetClient())
+	// todo: external db connection pool
+
 	if err := (&controller.OrgReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -228,6 +234,14 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		os.Exit(1)
+	}
+	if err := (&controller.ProjectClusterBindingReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		TargetFactory: targetClientFactory,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ProjectClusterBinding")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

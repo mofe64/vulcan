@@ -10,15 +10,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type UserRepository struct {
+type UserRepository interface {
+	GetUserIdByOIDCSub(ctx context.Context, sub string) (uuid.UUID, error)
+	InsertNewUser(ctx context.Context, sub string, email string) (uuid.UUID, error)
+	InsertNewUserWithTx(ctx context.Context, tx pgx.Tx, sub string, email string) (uuid.UUID, error)
+	UpsertUser(ctx context.Context, sub string, email string) (uuid.UUID, error)
+	UpsertUserWithTx(ctx context.Context, tx pgx.Tx, sub string, email string) (uuid.UUID, error)
+}
+
+type userRepository struct {
 	db *pgxpool.Pool
 }
 
-func NewUserRepo(db *pgxpool.Pool) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepo(db *pgxpool.Pool) UserRepository {
+	return &userRepository{db: db}
 }
 
-func (r *UserRepository) GetUserByOIDCSub(ctx context.Context, sub string) (uuid.UUID, error) {
+func (r *userRepository) GetUserIdByOIDCSub(ctx context.Context, sub string) (uuid.UUID, error) {
 	if sub == "" {
 		return uuid.Nil, errors.New("missing oidc_sub")
 	}
@@ -36,7 +44,7 @@ func (r *UserRepository) GetUserByOIDCSub(ctx context.Context, sub string) (uuid
 	return id, nil
 }
 
-func (r *UserRepository) InsertNewUser(ctx context.Context, sub string, email string) (uuid.UUID, error) {
+func (r *userRepository) InsertNewUser(ctx context.Context, sub string, email string) (uuid.UUID, error) {
 	if sub == "" {
 		return uuid.Nil, errors.New("missing oidc_sub")
 	}
@@ -47,7 +55,27 @@ func (r *UserRepository) InsertNewUser(ctx context.Context, sub string, email st
 	}
 
 	id := uuid.New()
-	err = r.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (id, oidc_sub, email)
+		VALUES ($1, $2, $3)
+		RETURNING id;
+	`, id, sub, sql.NullString{String: email, Valid: email != ""}).Scan(&id)
+	if err != nil {
+		tx.Rollback(ctx) // rollback if insert fails
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+func (r *userRepository) InsertNewUserWithTx(ctx context.Context, tx pgx.Tx, sub string, email string) (uuid.UUID, error) {
+	if sub == "" {
+		return uuid.Nil, errors.New("missing oidc_sub")
+	}
+	id := uuid.New()
+	err := tx.QueryRow(ctx, `
 		INSERT INTO users (id, oidc_sub, email)
 		VALUES ($1, $2, $3)
 		RETURNING id;
@@ -72,7 +100,7 @@ func (r *UserRepository) InsertNewUser(ctx context.Context, sub string, email st
 //
 //	userID – the UUID in your `users` table
 //	err    – any database error
-func (r *UserRepository) UpsertUser(ctx context.Context, sub string, email string) (uuid.UUID, error) {
+func (r *userRepository) UpsertUser(ctx context.Context, sub string, email string) (uuid.UUID, error) {
 	if sub == "" {
 		return uuid.Nil, errors.New("missing oidc_sub")
 	}
@@ -85,7 +113,34 @@ func (r *UserRepository) UpsertUser(ctx context.Context, sub string, email strin
 	// if the row exists we keep its id, else we generate a fresh UUID.
 	id := uuid.New()
 
-	err = r.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (id, oidc_sub, email)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (oidc_sub)
+		DO UPDATE
+		SET email = EXCLUDED.email
+		WHERE users.email IS DISTINCT FROM EXCLUDED.email
+		RETURNING id;
+	`, id, sub, sql.NullString{String: email, Valid: email != ""}).Scan(&id)
+	if err != nil {
+		tx.Rollback(ctx) // rollback if insert fails
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+func (r *userRepository) UpsertUserWithTx(ctx context.Context, tx pgx.Tx, sub string, email string) (uuid.UUID, error) {
+	if sub == "" {
+		return uuid.Nil, errors.New("missing oidc_sub")
+	}
+
+	// if the row exists we keep its id, else we generate a fresh UUID.
+	id := uuid.New()
+
+	err := tx.QueryRow(ctx, `
 		INSERT INTO users (id, oidc_sub, email)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (oidc_sub)

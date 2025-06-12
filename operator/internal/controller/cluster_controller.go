@@ -18,8 +18,11 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,19 +42,32 @@ type ClusterReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Cluster object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
+	log.Info("Reconciling Cluster", "name", req.Name, "namespace", req.Namespace)
+	var clu platformv1alpha1.Cluster
+	if err := r.Get(ctx, req.NamespacedName, &clu); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// Very naive health check – mark ready if kubeconfig secret exists
+	var secret corev1.Secret
+	err := r.Get(ctx, types.NamespacedName{Name: clu.Spec.KubeconfigSecret, Namespace: "default"}, &secret)
+	if err != nil {
+		clu.Status.Phase = "Error"
+		clu.Status.Msg = "missing kubeconfig secret"
+	} else {
+		clu.Status.Phase = "Ready"
+		clu.Status.Msg = ""
+	}
+	if updateErr := r.Status().Update(ctx, &clu); updateErr != nil {
+		return ctrl.Result{}, updateErr
+	}
+	log.Info("Cluster reconciled", "id", clu.Name, "phase", clu.Status.Phase)
+	return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
 
-	// TODO(user): your logic here
-
-	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

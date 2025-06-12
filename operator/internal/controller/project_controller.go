@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,6 +27,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
+	"github.com/mofe64/vulkan/operator/internal/util"
 )
 
 // ProjectReconciler reconciles a Project object
@@ -39,19 +42,30 @@ type ProjectReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Project object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var proj platformv1alpha1.Project
+	if err := r.Get(ctx, req.NamespacedName, &proj); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	return ctrl.Result{}, nil
+	// Ensure the project has a namespace in the *control-plane* cluster for CI‑build pods
+	ns := fmt.Sprintf("cp-proj-%s", proj.Name)
+	if err := util.EnsureNamespace(ctx, r.Client, ns, proj.Spec.DisplayName); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if proj.Status.Phase == "" {
+		proj.Status.Phase = "Ready"
+		_ = r.Status().Update(ctx, &proj)
+	}
+
+	log.Info("Project reconciled", "id", proj.Name)
+	return ctrl.Result{RequeueAfter: 15 * time.Minute}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

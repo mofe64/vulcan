@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,19 +40,28 @@ type OrgReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Org object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *OrgReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var org platformv1alpha1.Org
+	if err := r.Get(ctx, req.NamespacedName, &org); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	return ctrl.Result{}, nil
+	if org.Status.Phase == "" {
+		org.Status.Phase = "Ready"
+		if err := r.Status().Update(ctx, &org); err != nil {
+			return ctrl.Result{}, err
+		}
+		log.Info("Org ready", "id", org.Name)
+	}
+
+	// TODO: push quota metrics e.g. via Prometheus gauge
+	return ctrl.Result{RequeueAfter: 30 * time.Minute}, nil // heartbeat update
+
 }
 
 // SetupWithManager sets up the controller with the Manager.

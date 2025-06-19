@@ -19,15 +19,18 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
-	"github.com/mofe64/vulkan/operator/internal/util"
+	"github.com/mofe64/vulkan/operator/internal/utils"
 )
 
 // ProjectReconciler reconciles a Project object
@@ -52,10 +55,59 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.Get(ctx, req.NamespacedName, &proj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// ensure namespace exists in target cluster
+	// namespace should ideally have been created in the projectclusterbinding controller
+	// this is to reconfirm
+	ns := fmt.Sprintf("proj-%s", proj.Name)
+	if err := utils.EnsureNamespace(ctx, r.Client, ns, proj.Spec.DisplayName); err != nil {
+		return ctrl.Result{}, err
+	}
 
-	// Ensure the project has a namespace in the *control-plane* cluster for CI‑build pods
-	ns := fmt.Sprintf("cp-proj-%s", proj.Name)
-	if err := util.EnsureNamespace(ctx, r.Client, ns, proj.Spec.DisplayName); err != nil {
+	// add labels to namespace
+	if err := utils.AddLabelsToNamespace(ctx, r.Client, ns, map[string]string{
+		"vulkan.io/project": proj.Name,
+		"vulkan.io/org":     proj.Spec.OrgRef,
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// set resource quota
+	quota := &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "project-quota",
+			Namespace: ns,
+		},
+		// TODO:
+		Spec: corev1.ResourceQuotaSpec{
+			Hard: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10"),
+				corev1.ResourceMemory: resource.MustParse("20Gi"),
+			},
+		},
+	}
+
+	// create quota in namespace
+	if err := r.Client.Create(ctx, quota); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// create network policy
+	networkPolicy := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-deny",
+			Namespace: ns,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []networkingv1.PolicyType{
+				networkingv1.PolicyTypeIngress,
+				networkingv1.PolicyTypeEgress,
+			},
+		},
+	}
+
+	// create network policy in namespace
+	if err := r.Client.Create(ctx, networkPolicy); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -65,8 +117,41 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	log.Info("Project reconciled", "id", proj.Name)
-	return ctrl.Result{RequeueAfter: 15 * time.Minute}, nil
+	return ctrl.Result{}, nil
 }
+
+// func (r *ProjectReconciler) validateClusterSelection(ctx context.Context, project *v1alpha1.Project) error {
+//     // 1. Get available clusters
+//     var clusters v1alpha1.ClusterList
+//     if err := r.List(ctx, &clusters, client.MatchingLabels{
+//         "type": project.Spec.ClusterSelector.Type,
+//     }); err != nil {
+//         return err
+//     }
+
+//     // 2. Validate cluster health
+//     for _, cluster := range clusters.Items {
+//         if cluster.Status.Phase != "Ready" {
+//             continue
+//         }
+
+//         // Check region if specified
+//         if project.Spec.ClusterSelector.Region != "" {
+//             if cluster.Spec.Region != project.Spec.ClusterSelector.Region {
+//                 continue
+//             }
+//         }
+
+//         // Check capacity
+//         if err := r.checkClusterCapacity(ctx, &cluster); err != nil {
+//             continue
+//         }
+
+//         return nil
+//     }
+
+//     return fmt.Errorf("no suitable cluster found")
+// }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {

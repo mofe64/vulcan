@@ -87,6 +87,15 @@ func (s *onboardingService) Onboard(ctx context.Context, sub string, email strin
 		return uuid.Nil, fmt.Errorf("failed to ensure in-cluster kubeconfig secret: %w", err)
 	}
 
+	// org
+	if err := s.k8s.Create(ctx, &platformv1.Org{
+		ObjectMeta: metav1.ObjectMeta{Name: oidOrg.String()},
+		Spec:       platformv1.OrgSpec{DisplayName: "default-org"},
+	}); err != nil {
+		s.revertOnboarding(ctx, tx, userId, oidOrg, oidProj, oidCluster)
+		return uuid.Nil, fmt.Errorf("failed to create org CRD: %w", err)
+	}
+
 	// cluster
 	if err := s.k8s.Create(ctx, &platformv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -97,19 +106,11 @@ func (s *onboardingService) Onboard(ctx context.Context, sub string, email strin
 			Type:             "attached",
 			Region:           "",
 			KubeconfigSecret: s.vCfg.DefaultAttachedClusterConnectionSecret,
+			OrgRef:           oidOrg.String(),
 		},
 	}); err != nil {
 		s.revertOnboarding(ctx, tx, userId, oidOrg, oidProj, oidCluster)
 		return uuid.Nil, fmt.Errorf("failed to create cluster CRD: %w", err)
-	}
-
-	// org
-	if err := s.k8s.Create(ctx, &platformv1.Org{
-		ObjectMeta: metav1.ObjectMeta{Name: oidOrg.String()},
-		Spec:       platformv1.OrgSpec{DisplayName: "default-org"},
-	}); err != nil {
-		s.revertOnboarding(ctx, tx, userId, oidOrg, oidProj, oidCluster)
-		return uuid.Nil, fmt.Errorf("failed to create org CRD: %w", err)
 	}
 
 	// project

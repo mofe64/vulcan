@@ -1,32 +1,17 @@
-/*
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// Important: Run "make" to regenerate code after modifying this file
 
 // ClusterSpec defines the desired state of Cluster.
 type ClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+
+	// OrgRef is the reference to the org that the cluster belongs to.
+	OrgRef string `json:"orgRef"`
 
 	// +kubebuilder:validation:Enum=attached;eks
 	Type string `json:"type"`
@@ -41,19 +26,63 @@ type ClusterSpec struct {
 	KubeconfigSecret string `json:"kubeconfigSecret,omitempty"`
 }
 
+// NodePool describes ONE group of worker nodes that share the same
+// size, scaling rules and scheduling hints.
+//
+// Why we need it
+// --------------
+// • A single Kubernetes cluster often mixes machine types:
+//   - small on-demand nodes for web traffic
+//   - larger spot nodes for background jobs
+//   - GPU nodes for ML workloads
+//     Each mix is expressed as a separate NodePool.
+//   - When the Cluster reconciler talks to AWS/GKE/AKS it turns every
+//     NodePool into a managed node-group, honouring min/max scaling.
+//
+// Fields explained
+// ----------------
+// Name – logical pool name (“default”, “gpu”, “spot”).
+// InstanceType  – cloud SKU (t3.medium, n1-standard-4, …).
+// MinSize/MaxSize – auto-scaler bounds.  If Desired is nil the cloud auto-scaler can pick any value inside this range.
+// Desired – optional fixed replica count.  Overrides auto-scale.
+// Labels – key/value tags added to every node so Deployments can target the pool with nodeSelector or topology spread.
+// Taints – stop unrelated Pods from landing here unless they have a matching toleration; useful for GPU-only nodes.
 type NodePool struct {
-	Name  string `json:"name"`
-	Size  string `json:"size"`
-	Count int32  `json:"count"`
+	// Logical name for users & dashboards.
+	// e.g. "default", "gpu", "spot"
+	Name string `json:"name"`
+
+	// Cloud machine SKU.
+	// AWS: "t3.medium"  GCP: "e2-standard-4"
+	InstanceType string `json:"instanceType"`
+
+	// Autoscaler lower & upper bounds.
+	MinSize int32 `json:"minSize"`
+	MaxSize int32 `json:"maxSize"`
+
+	// Optional fixed size; when set we bypass autoscaler.
+	// +kubebuilder:validation:Optional
+	Desired *int32 `json:"desired,omitempty"`
+
+	// Node labels copied to every node in this pool.
+	// Apps can select the pool via nodeSelector.
+	// +kubebuilder:validation:Optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Node taints copied to every node in this pool.
+	// Forces only tolerating Pods to schedule here
+	// (e.g. isolate GPU workloads).
+	// +kubebuilder:validation:Optional
+	Taints []corev1.Taint `json:"taints,omitempty"`
 }
 
 // ClusterStatus defines the observed state of Cluster.
 type ClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	Phase string `json:"phase,omitempty"`   // Provisioning, Ready, Error
-	Msg   string `json:"message,omitempty"` // last error
+	// Conditions represent the latest available observations
+	// of the resource’s state.
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	// Endpoint is useful for CLI ‘kubeconfig’ command.
 	Endpoint string `json:"endpoint,omitempty"`
 }

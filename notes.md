@@ -66,6 +66,37 @@ PolicyPath -> eg. data/api/authz/allow
 The REST endpoint under /v1/… that maps to one specific rule inside your bundle. It is built from:
 data + package path + rule name → for module package api.authz, rule allow, the path is data/api/authz/allow.
 
+Note -> for operator, run `make test` to set up envtest deps before running tests
+
 ### helm repos
 
 cert-manager -> helm repo add jetstack https://charts.jetstack.io
+
+### failed to get server groups: unknown" during tests
+
+Quick-reference summary
+
+- **Observed error**
+
+  ```
+  failed to get server groups: unknown
+  ```
+
+  (surfaces as “Failed to list nodes” when the client’s discovery call fails)
+
+- **Root cause**
+  The kubeconfig stored in the Secret pointed to a **file-path CA certificate**
+  (`certificate-authority: /tmp/.../ca.crt`).
+  When the controller read the Secret later, that temp file no longer existed, so
+  the TLS handshake with the API server failed and discovery (`GET /apis`) could
+  not fetch “server groups”.
+
+- **Fix applied**
+  Generate the kubeconfig with the control plane’s **CA bytes embedded** as
+  `certificate-authority-data` (helper `kubeconfigWithEmbeddedCA`).
+  This makes the kubeconfig self-contained and immune to missing temp files.
+  _(Optional for throwaway tests: set `InsecureSkipTLSVerify: true` instead.)_
+
+Keep this three-liner handy; if you see the same discovery error in another
+project, first check whether the kubeconfig is still referencing a vanished
+`ca.crt` file.

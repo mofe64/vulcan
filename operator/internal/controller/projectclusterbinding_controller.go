@@ -1,19 +1,3 @@
-/*
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
@@ -28,14 +12,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
-	"github.com/mofe64/vulkan/operator/internal/util"
+	"github.com/mofe64/vulkan/operator/internal/utils"
 )
 
 // ProjectClusterBindingReconciler reconciles a ProjectClusterBinding object
 type ProjectClusterBindingReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	TargetFactory *util.TargetClientFactory // helper to create a client for a Cluster CRD
+	TargetFactory utils.TargetClientFactory // helper to create a client for a Cluster CRD
 	DB            *pgxpool.Pool
 }
 
@@ -70,7 +54,10 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 	if err := r.Get(ctx, types.NamespacedName{Name: binding.Spec.ClusterID}, &clu); err != nil {
 		return r.fail(ctx, &binding, "cluster lookup", err)
 	}
-	// Build a client to the *target* cluster using kubeconfig secret
+	// TODO:
+	// should check if we are using default (current)cluster, if yes,
+	// then just use the request client, else
+	// build a client to the *target* cluster using kubeconfig secret
 	tgt, err := r.TargetFactory.ClientFor(ctx, &clu)
 	if err != nil {
 		return r.fail(ctx, &binding, "kubeconfig", err)
@@ -78,11 +65,13 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 
 	ns := fmt.Sprintf("proj-%s", proj.Name) // namespace pattern
 
-	if err := util.EnsureNamespace(ctx, tgt, ns, proj.Spec.DisplayName); err != nil {
+	if err := utils.EnsureNamespace(ctx, tgt, ns, proj.Spec.DisplayName); err != nil {
 		return r.fail(ctx, &binding, "namespace", err)
 	}
 
 	// todo: fetch project members for this project and assign them roles in the target cluster based on their roles in the project
+
+	//todo: validate capacity
 
 	// Update status → Ready
 	if binding.Status.Phase != "Ready" {
@@ -100,6 +89,36 @@ func (r *ProjectClusterBindingReconciler) fail(ctx context.Context, b *platformv
 	_ = r.Status().Update(ctx, b)
 	return ctrl.Result{}, err
 }
+
+// func (r *ProjectClusterBindingReconciler) validateCapacity(ctx context.Context, cluster *v1alpha1.Cluster, project *v1alpha1.Project) error {
+// 	// Get current resource usage
+// 	var pods corev1.PodList
+// 	if err := r.List(ctx, &pods, client.InNamespace(project.Status.Namespace)); err != nil {
+// 		return err
+// 	}
+
+// 	// Calculate required resources
+// 	var requiredCPU resource.Quantity
+// 	var requiredMemory resource.Quantity
+
+// 	for _, pod := range pods.Items {
+// 		for _, container := range pod.Spec.Containers {
+// 			requiredCPU.Add(*container.Resources.Requests.Cpu())
+// 			requiredMemory.Add(*container.Resources.Requests.Memory())
+// 		}
+// 	}
+
+// 	// Check against cluster capacity
+// 	if requiredCPU.Cmp(cluster.Status.AvailableCPU) > 0 {
+// 		return fmt.Errorf("insufficient CPU capacity")
+// 	}
+
+// 	if requiredMemory.Cmp(cluster.Status.AvailableMemory) > 0 {
+// 		return fmt.Errorf("insufficient memory capacity")
+// 	}
+
+// 	return nil
+// }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ProjectClusterBindingReconciler) SetupWithManager(mgr ctrl.Manager) error {

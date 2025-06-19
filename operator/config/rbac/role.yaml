@@ -8,7 +8,6 @@ rules:
   - platform.platform.io
   resources:
   - applications
-  - clusters
   - orgs
   - projectclusterbindings
   - projects
@@ -24,7 +23,6 @@ rules:
   - platform.platform.io
   resources:
   - applications/finalizers
-  - clusters/finalizers
   - orgs/finalizers
   - projectclusterbindings/finalizers
   - projects/finalizers
@@ -34,7 +32,6 @@ rules:
   - platform.platform.io
   resources:
   - applications/status
-  - clusters/status
   - orgs/status
   - projectclusterbindings/status
   - projects/status

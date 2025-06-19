@@ -83,12 +83,17 @@ spec:
                   - value
                   type: object
                 type: array
+              projectRef:
+                description: ProjectRef is the reference to the project that the application
+                  belongs to.
+                type: string
               repoURL:
                 description: Git repository to build & deploy.
                 format: uri
                 type: string
             required:
             - build
+            - projectRef
             - repoURL
             type: object
           status:

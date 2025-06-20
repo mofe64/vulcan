@@ -27,6 +27,9 @@ type ApplicationSpec struct {
 
 	// ProjectRef is the reference to the project that the application belongs to.
 	ProjectRef string `json:"projectRef"`
+
+	// OrgRef is the reference to the name of the organization that the application belongs to.
+	OrgRef string `json:"orgRef"`
 }
 
 type BuildConfig struct {

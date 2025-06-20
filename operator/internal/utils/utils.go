@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -132,4 +133,17 @@ func EnsureRoleBinding(ctx context.Context, c client.Client, ns, subject, role s
 		RoleRef:    rbacv1.RoleRef{Kind: "ClusterRole", Name: role, APIGroup: "rbac.authorization.k8s.io"},
 	}
 	return c.Create(ctx, &rb)
+}
+
+func ContainsString(slice []string, str string) bool {
+	return slices.Contains(slice, str)
+}
+
+func RemoveString(slice []string, str string) []string {
+	for i, s := range slice {
+		if s == str {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
 }

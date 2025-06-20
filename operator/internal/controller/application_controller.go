@@ -56,13 +56,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// When Org is first seen, just set status.phase=Ready
-	if org.Status.Phase == "" {
-		org.Status.Phase = "Ready"
-		if err := r.Status().Update(ctx, &org); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	// // When Org is first seen, just set status.phase=Ready
+	// if org.Status.Phase == "" {
+	// 	org.Status.Phase = "Ready"
+	// 	if err := r.Status().Update(ctx, &org); err != nil {
+	// 		return ctrl.Result{}, err
+	// 	}
+	// }
 	return ctrl.Result{}, nil
 }
 

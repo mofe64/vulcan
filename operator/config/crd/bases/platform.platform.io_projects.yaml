@@ -69,8 +69,8 @@ spec:
                 minLength: 3
                 type: string
               orgRef:
-                description: OrgRef is the reference to the organization this project
-                  belongs to
+                description: OrgRef is the reference to the name of theorganization
+                  this project belongs to
                 pattern: ^[0-9a-fA-F-]{36}$
                 type: string
             required:

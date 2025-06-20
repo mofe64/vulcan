@@ -83,6 +83,10 @@ spec:
                   - value
                   type: object
                 type: array
+              orgRef:
+                description: OrgRef is the reference to the name of the organization
+                  that the application belongs to.
+                type: string
               projectRef:
                 description: ProjectRef is the reference to the project that the application
                   belongs to.
@@ -93,6 +97,7 @@ spec:
                 type: string
             required:
             - build
+            - orgRef
             - projectRef
             - repoURL
             type: object

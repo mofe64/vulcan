@@ -15,6 +15,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
+	"github.com/mofe64/vulkan/operator/internal/metrics"
 	"github.com/mofe64/vulkan/operator/internal/utils"
 )
 
@@ -36,15 +37,69 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// set the cluster ready condition to unknown
-	// since we haven't done validation yet
-	apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
-		Type:               platformv1alpha1.Ready,
-		Status:             metav1.ConditionUnknown,
-		Reason:             "Reconciling",
-		Message:            "Waiting for controller checks",
-		ObservedGeneration: clu.GetGeneration(),
-	})
+	// validate that the org's cluster quota is not exceeded
+	clusterOwnerOrg := &platformv1alpha1.Org{}
+	if err := r.Get(ctx, types.NamespacedName{Name: clu.Spec.OrgRef, Namespace: "default"}, clusterOwnerOrg); err != nil {
+		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
+			Type:               platformv1alpha1.Ready,
+			Status:             metav1.ConditionUnknown,
+			Reason:             "Reconciling",
+			Message:            "Could not find cluster owner org",
+			ObservedGeneration: clu.GetGeneration(),
+		})
+		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
+			Type:               platformv1alpha1.Error,
+			Status:             metav1.ConditionTrue,
+			Reason:             "OrgNotFound",
+			Message:            "Could not find cluster owner org",
+			ObservedGeneration: clu.GetGeneration(),
+		})
+		_ = r.Status().Update(ctx, &clu)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// get all clusters belonging to the org
+	clustersBelongingToOrg := &platformv1alpha1.ClusterList{}
+	if err := r.List(ctx, clustersBelongingToOrg, client.MatchingLabels{
+		"spec.orgRef": clu.Spec.OrgRef,
+	}); err != nil {
+		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
+			Type:               platformv1alpha1.Ready,
+			Status:             metav1.ConditionUnknown,
+			Reason:             "Reconciling",
+			Message:            "Could not find cluster owner org",
+			ObservedGeneration: clu.GetGeneration(),
+		})
+		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
+			Type:               platformv1alpha1.Error,
+			Status:             metav1.ConditionTrue,
+			Reason:             "ClusterNotFound",
+			Message:            "Could not find clusters belonging to org",
+			ObservedGeneration: clu.GetGeneration(),
+		})
+		_ = r.Status().Update(ctx, &clu)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	currentClusterCount := int32(len(clustersBelongingToOrg.Items))
+	if currentClusterCount >= clusterOwnerOrg.Spec.OrgQuota.Clusters {
+		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Ready,
+			Status:  metav1.ConditionFalse,
+			Reason:  "ClusterQuotaExceeded",
+			Message: "Cluster quota exceeded",
+		})
+		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Error,
+			Status:  metav1.ConditionTrue,
+			Reason:  "ClusterQuotaExceeded",
+			Message: "Cluster quota exceeded",
+		})
+		_ = r.Status().Update(ctx, &clu)
+
+		// might add logic to delete the cluster
+		return ctrl.Result{}, nil
+	}
 
 	// check kubeconfig secret exists
 	var secret corev1.Secret
@@ -96,6 +151,17 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: time.Minute * 2}, nil
 	}
 
+	// update the metrics
+	metrics.IncClusters(clu.Spec.OrgRef)
+
+	// add the finalizer
+	if !utils.ContainsString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer) {
+		clu.ObjectMeta.Finalizers = append(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer)
+		if err := r.Update(ctx, &clu); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// set the cluster ready condition to true
 	apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
 		Type:               platformv1alpha1.Ready,
@@ -113,9 +179,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		ObservedGeneration: clu.GetGeneration(),
 	})
 	_ = r.Status().Update(ctx, &clu)
+
 	log.Info("Cluster reconciled", "id", clu.Name, "phase", clu.Status.Conditions)
 	return ctrl.Result{}, nil
-
 }
 
 func (r *ClusterReconciler) checkClusterHealth(ctx context.Context, clu *platformv1alpha1.Cluster) (bool, string, error) {
@@ -162,4 +228,25 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&platformv1alpha1.Cluster{}).
 		Named("cluster").
 		Complete(r)
+}
+
+// finalizer
+func (r *ClusterReconciler) Finalizer(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	log.Info("Finalizing Cluster", "name", req.Name, "namespace", req.Namespace)
+	var clu platformv1alpha1.Cluster
+	if err := r.Get(ctx, req.NamespacedName, &clu); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// decrement the cluster metrics
+	metrics.DecClusters(clu.Spec.OrgRef)
+
+	// remove the finalizer
+	clu.ObjectMeta.Finalizers = utils.RemoveString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer)
+	if err := r.Update(ctx, &clu); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
 }

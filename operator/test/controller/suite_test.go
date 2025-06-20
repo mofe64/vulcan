@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -17,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
+	"github.com/mofe64/vulkan/operator/internal/metrics"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -24,11 +26,12 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
+	ctx          context.Context
+	cancel       context.CancelFunc
+	testEnv      *envtest.Environment
+	cfg          *rest.Config
+	k8sClient    client.Client
+	testRegistry *prometheus.Registry
 )
 
 func TestControllers(t *testing.T) {
@@ -67,6 +70,16 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	// create a test registry for prom metrics
+	testRegistry = prometheus.NewRegistry()
+	testRegistry.MustRegister(
+		metrics.ClustersPerOrg,
+		metrics.ProjectsPerOrg,
+		metrics.ApplicationsPerOrg,
+		metrics.OrgQuotaUsage,
+	)
+
 })
 
 var _ = AfterSuite(func() {

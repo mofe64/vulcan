@@ -40,7 +40,6 @@ import (
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	"github.com/mofe64/vulkan/operator/internal/controller"
-	"github.com/mofe64/vulkan/operator/internal/metrics"
 	"github.com/mofe64/vulkan/operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
@@ -205,16 +204,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	metrics := metrics.GetMetrics()
-
 	// build TargetClientFactory for cluster crds
 	targetClientFactory := utils.NewTargetClientFactory(mgr.GetClient())
 	// todo: external db connection pool
 
 	if err := (&controller.OrgReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Metrics: metrics,
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Org")
 		os.Exit(1)

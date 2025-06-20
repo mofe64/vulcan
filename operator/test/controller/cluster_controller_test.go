@@ -6,6 +6,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,6 +20,7 @@ import (
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	controllerImpl "github.com/mofe64/vulkan/operator/internal/controller"
+	"github.com/mofe64/vulkan/operator/internal/metrics"
 	utils "github.com/mofe64/vulkan/operator/internal/utils"
 	testUtils "github.com/mofe64/vulkan/operator/test/utils"
 )
@@ -27,10 +29,12 @@ var (
 	clusterNamespace    = "default"
 	clusterSecretName   = "test-kubeconfig"
 	clusterNodeName     = "fake-node-0"
-	clusterOrgRef       = "test-org"
+	orgName             = "test-org"
 	clusterType         = "attached"
 	targetClientFactory utils.TargetClientFactory
 )
+
+//Note -> orgs and clusters are created in the same namespace
 
 // helper: stub TargetClientFactory so we create error scenarios
 type noNodeTargetClusterClientFactory struct{}
@@ -56,6 +60,18 @@ var _ = Describe("Cluster Controller", func() {
 
 		BeforeEach(func() {
 			By("creating the cluster resource and it's kubeconfig secret for the test Cluster")
+
+			// create the  org resource
+			org := &platformv1alpha1.Org{
+				ObjectMeta: metav1.ObjectMeta{Name: orgName, Namespace: clusterNamespace},
+				Spec: platformv1alpha1.OrgSpec{
+					OrgQuota:    platformv1alpha1.OrgQuota{Clusters: 10, Apps: 10},
+					DisplayName: orgName + "-display-name",
+					OwnerEmail:  "test@test.com",
+				},
+			}
+			Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
 			// create a kubeconfig for the test cluster
 			kcBytes, err := testUtils.KubeconfigWithEmbeddedCA(testEnv.Config)
 			Expect(err).NotTo(HaveOccurred())
@@ -89,10 +105,10 @@ var _ = Describe("Cluster Controller", func() {
 				resource := &platformv1alpha1.Cluster{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
-						Namespace: "default",
+						Namespace: clusterNamespace,
 					},
 					Spec: platformv1alpha1.ClusterSpec{
-						OrgRef:           clusterOrgRef,
+						OrgRef:           orgName,
 						Type:             clusterType,
 						KubeconfigSecret: clusterSecretName,
 					},
@@ -124,6 +140,11 @@ var _ = Describe("Cluster Controller", func() {
 			// delete the fake node
 			Expect(k8sClient.Delete(ctx, &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: clusterNodeName},
+			})).To(Succeed())
+
+			// delete the org resource
+			Expect(k8sClient.Delete(ctx, &platformv1alpha1.Org{
+				ObjectMeta: metav1.ObjectMeta{Name: orgName, Namespace: clusterNamespace},
 			})).To(Succeed())
 		})
 
@@ -180,7 +201,7 @@ var _ = Describe("Cluster Controller", func() {
 					Namespace: clusterNamespace,
 				},
 				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           clusterOrgRef,
+					OrgRef:           orgName,
 					Type:             clusterType,
 					KubeconfigSecret: "idontexist",
 				},
@@ -230,7 +251,7 @@ var _ = Describe("Cluster Controller", func() {
 					Namespace: clusterNamespace,
 				},
 				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           clusterOrgRef,
+					OrgRef:           orgName,
 					Type:             clusterType,
 					KubeconfigSecret: clusterSecretName,
 				},
@@ -281,7 +302,7 @@ var _ = Describe("Cluster Controller", func() {
 					Namespace: clusterNamespace,
 				},
 				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           clusterOrgRef,
+					OrgRef:           orgName,
 					Type:             clusterType,
 					KubeconfigSecret: clusterSecretName,
 				},
@@ -308,5 +329,35 @@ var _ = Describe("Cluster Controller", func() {
 			}).Should(Succeed())
 		})
 
+		It("updates cluster metrics when the cluster is created", func() {
+			By("Reconciling the created resource")
+			controllerReconciler := &controllerImpl.ClusterReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				TargetFactory: targetClientFactory,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
+				g.Expect(got).To(BeNumerically("==", 1))
+			}).Should(Succeed())
+		})
+
+		It("updates cluster metrics when the cluster is deleted", func() {
+			//TODO: Implement this test
+		})
+
+		It("adds the finalizer to the cluster on creation", func() {
+			//TODO: Implement this test
+		})
+
+		It("removes the finalizer from the cluster on deletion", func() {
+			//TODO: Implement this test
+		})
 	})
 })

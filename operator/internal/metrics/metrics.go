@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 // Singleton instance
@@ -14,56 +15,59 @@ var (
 
 type Metrics struct {
 	OrgclusterCount     *prometheus.GaugeVec
+	OrgprojectCount     *prometheus.GaugeVec
 	OrgapplicationCount *prometheus.GaugeVec
 	OrgQuotaUsage       *prometheus.GaugeVec
 }
 
-func NewMetrics() *Metrics {
-	return &Metrics{
-		OrgclusterCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vulkan_org_cluster_count",
-			Help: "Number of clusters per organization",
-		}, []string{"org"},
-		),
-		OrgapplicationCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vulkan_org_application_count",
-			Help: "Number of applications per organization",
-		}, []string{"org"},
-		),
-		OrgQuotaUsage: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Name: "vulcan_org_quota_usage",
-				Help: "Organization quota usage percentage",
-			},
-			[]string{"org", "resource_type"},
-		),
-	}
+var (
+	ClustersPerOrg = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "vulkan",
+			Subsystem: "cluster",
+			Name:      "current_total",
+			Help:      "Current number of Cluster CRs counted against each Org quota",
+		},
+		[]string{"org"},
+	)
+	ProjectsPerOrg = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "vulkan",
+			Subsystem: "project",
+			Name:      "current_total",
+			Help:      "Current number of Project CRs counted against each Org quota",
+		},
+		[]string{"org"},
+	)
+	ApplicationsPerOrg = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "vulkan",
+			Subsystem: "application",
+			Name:      "current_total",
+			Help:      "Current number of Application CRs counted against each Org quota",
+		},
+		[]string{"org"},
+	)
+	OrgQuotaUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "vulkan",
+			Subsystem: "org",
+			Name:      "quota_usage",
+			Help:      "Organization quota usage percentage",
+		}, []string{"org", "resource_type"},
+	)
+)
+
+func init() {
+	metrics.Registry.MustRegister(ClustersPerOrg, ProjectsPerOrg, ApplicationsPerOrg, OrgQuotaUsage)
 }
 
-// UpdateClusterCount updates the metrics for cluster count
-func (m *Metrics) UpdateClusterCount(orgName string, count int32) {
-	m.OrgclusterCount.WithLabelValues(orgName).Set(float64(count))
-}
-
-// UpdateApplicationCount updates the metrics for application count
-func (m *Metrics) UpdateApplicationCount(orgName string, count int32) {
-	m.OrgapplicationCount.WithLabelValues(orgName).Set(float64(count))
-}
-
-func (m *Metrics) UpdateQuotaUsage(orgName string, resourceType string, usage float64) {
-	m.OrgQuotaUsage.WithLabelValues(orgName, resourceType).Set(usage)
-	switch resourceType {
-	case "clusters":
-		m.OrgQuotaUsage.WithLabelValues(orgName, "clusters").Set(usage)
-	case "applications":
-		m.OrgQuotaUsage.WithLabelValues(orgName, "applications").Set(usage)
-	}
-}
-
-// GetMetrics returns the singleton metrics instance
-func GetMetrics() *Metrics {
-	once.Do(func() {
-		instance = NewMetrics()
-	})
-	return instance
+func IncClusters(org string)     { ClustersPerOrg.WithLabelValues(org).Inc() }
+func DecClusters(org string)     { ClustersPerOrg.WithLabelValues(org).Dec() }
+func IncProjects(org string)     { ProjectsPerOrg.WithLabelValues(org).Inc() }
+func DecProjects(org string)     { ProjectsPerOrg.WithLabelValues(org).Dec() }
+func IncApplications(org string) { ApplicationsPerOrg.WithLabelValues(org).Inc() }
+func DecApplications(org string) { ApplicationsPerOrg.WithLabelValues(org).Dec() }
+func UpdateQuotaUsage(org string, resourceType string, usage float64) {
+	OrgQuotaUsage.WithLabelValues(org, resourceType).Set(usage)
 }

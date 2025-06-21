@@ -2,12 +2,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
@@ -59,18 +60,25 @@ var _ = Describe("Cluster Controller", func() {
 		cluster := &platformv1alpha1.Cluster{}
 
 		BeforeEach(func() {
+			// Reset metrics registry to ensure clean state for each test
+			resetMetrics()
+
 			By("creating the cluster resource and it's kubeconfig secret for the test Cluster")
 
-			// create the  org resource
-			org := &platformv1alpha1.Org{
-				ObjectMeta: metav1.ObjectMeta{Name: orgName, Namespace: clusterNamespace},
-				Spec: platformv1alpha1.OrgSpec{
-					OrgQuota:    platformv1alpha1.OrgQuota{Clusters: 10, Apps: 10},
-					DisplayName: orgName + "-display-name",
-					OwnerEmail:  "test@test.com",
-				},
+			// create the org resource (check if it exists first)
+			org := &platformv1alpha1.Org{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: orgName, Namespace: clusterNamespace}, org)
+			if err != nil && errors.IsNotFound(err) {
+				org = &platformv1alpha1.Org{
+					ObjectMeta: metav1.ObjectMeta{Name: orgName, Namespace: clusterNamespace},
+					Spec: platformv1alpha1.OrgSpec{
+						OrgQuota:    platformv1alpha1.OrgQuota{Clusters: 10, Apps: 10},
+						DisplayName: orgName + "-display-name",
+						OwnerEmail:  "test@test.com",
+					},
+				}
+				Expect(k8sClient.Create(ctx, org)).To(Succeed())
 			}
-			Expect(k8sClient.Create(ctx, org)).To(Succeed())
 
 			// create a kubeconfig for the test cluster
 			kcBytes, err := testUtils.KubeconfigWithEmbeddedCA(testEnv.Config)
@@ -114,20 +122,65 @@ var _ = Describe("Cluster Controller", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			} else if err == nil {
+				// Cluster exists, check if it has a deletion timestamp
+				if !cluster.DeletionTimestamp.IsZero() {
+					// Wait for deletion to complete, then recreate
+					Eventually(func(g Gomega) {
+						err := k8sClient.Get(ctx, typeNamespacedName, cluster)
+						g.Expect(err).To(HaveOccurred())
+						g.Expect(errors.IsNotFound(err)).To(BeTrue())
+					}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+
+					// Recreate the cluster
+					resource := &platformv1alpha1.Cluster{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      resourceName,
+							Namespace: clusterNamespace,
+						},
+						Spec: platformv1alpha1.ClusterSpec{
+							OrgRef:           orgName,
+							Type:             clusterType,
+							KubeconfigSecret: clusterSecretName,
+						},
+					}
+					Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+				}
 			}
 
 			// create the target client factory
 			targetClientFactory = utils.NewTargetClientFactory(k8sClient)
+
 		})
 
 		AfterEach(func() {
-
+			// Clean up in reverse order to avoid dependency issues
+			By("Cleanup the test Cluster")
+			// First, try to delete the cluster resource
 			resource := &platformv1alpha1.Cluster{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+			if err == nil {
+				fmt.Println("Deleting the test Cluster", "name", resource.Name, "namespace", resource.Namespace)
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
-			By("Cleanup the test Cluster")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+				// If the cluster has a finalizer, trigger a reconcile to remove it
+				if utils.ContainsString(resource.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer) {
+					controllerReconciler := buildTestClusterReconciler(targetClientFactory)
+					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespacedName,
+					})
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				// Wait for the cluster to be fully deleted
+				Eventually(func(g Gomega) {
+					err := k8sClient.Get(ctx, typeNamespacedName, resource)
+					g.Expect(err).To(HaveOccurred())
+					g.Expect(errors.IsNotFound(err)).To(BeTrue())
+				}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+			} else {
+				fmt.Println("Cluster not found", "name", resource.Name, "namespace", resource.Namespace)
+			}
 
 			// delete the kubeconfig secret
 			Expect(k8sClient.Delete(ctx, &corev1.Secret{
@@ -150,27 +203,12 @@ var _ = Describe("Cluster Controller", func() {
 
 		It("should successfully reconcile the resource if all fields are valid and the cluster is healthy", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &controllerImpl.ClusterReconciler{
-				Client:        k8sClient,
-				Scheme:        k8sClient.Scheme(),
-				TargetFactory: targetClientFactory,
-			}
+			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-
-			// check the cluster resource
-			cluster := &platformv1alpha1.Cluster{}
-			err = k8sClient.Get(ctx, typeNamespacedName, cluster)
-			Expect(err).NotTo(HaveOccurred())
-
-			// condition := apimeta.FindStatusCondition(cluster.Status.Conditions, platformv1alpha1.Ready)
-			// Expect(condition).NotTo(BeNil())
-			// Expect(condition.Status).To(Equal(metav1.ConditionTrue))
-			// Expect(condition.Reason).To(Equal("Reconciled"))
-			// Expect(condition.Message).To(Equal("Cluster is healthy"))
 
 			// check the cluster ready condition
 			Eventually(func(g Gomega) {
@@ -208,11 +246,7 @@ var _ = Describe("Cluster Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-			r := &controllerImpl.ClusterReconciler{
-				Client:        k8sClient,
-				Scheme:        k8sClient.Scheme(),
-				TargetFactory: targetClientFactory,
-			}
+			r := buildTestClusterReconciler(targetClientFactory)
 
 			// trigger one reconcile cycle
 			res, err := r.Reconcile(ctx, reconcile.Request{
@@ -258,11 +292,7 @@ var _ = Describe("Cluster Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-			r := &controllerImpl.ClusterReconciler{
-				Client:        k8sClient,
-				Scheme:        k8sClient.Scheme(),
-				TargetFactory: &noNodeTargetClusterClientFactory{},
-			}
+			r := buildTestClusterReconciler(&noNodeTargetClusterClientFactory{})
 
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
 			Expect(err).NotTo(HaveOccurred())
@@ -309,11 +339,7 @@ var _ = Describe("Cluster Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-			r := &controllerImpl.ClusterReconciler{
-				Client:        k8sClient,
-				Scheme:        k8sClient.Scheme(),
-				TargetFactory: targetClientFactory, // real factory OK; env-test has that node
-			}
+			r := buildTestClusterReconciler(targetClientFactory)
 
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
 			Expect(err).NotTo(HaveOccurred())
@@ -327,37 +353,119 @@ var _ = Describe("Cluster Controller", func() {
 				g.Expect(ready.Reason).To(Equal("HealthCheckFailed"))
 				g.Expect(ready.Message).To(ContainSubstring("is not ready"))
 			}).Should(Succeed())
+
+			// delete the node
+			Expect(k8sClient.Delete(ctx, &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{Name: "sad-node"},
+			})).To(Succeed())
+
 		})
 
 		It("updates cluster metrics when the cluster is created", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &controllerImpl.ClusterReconciler{
-				Client:        k8sClient,
-				Scheme:        k8sClient.Scheme(),
-				TargetFactory: targetClientFactory,
-			}
+			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			// cluster count should be 1 after before each runs
+			Eventually(func(g Gomega) {
+				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
+				g.Expect(got).To(BeNumerically("==", 1))
+			}).Should(Succeed())
+
+		})
+
+		It("updates cluster metrics when the cluster is deleted", func() {
+			By("Reconciling the created resource")
+			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
+
+			// First reconcile the original cluster to increment metrics to 1
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify original cluster is counted
+			Eventually(func(g Gomega) {
+				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
+				g.Expect(got).To(BeNumerically("==", 1))
+			}).Should(Succeed())
+
+			newCluster := &platformv1alpha1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-cluster",
+					Namespace: clusterNamespace,
+				},
+				Spec: platformv1alpha1.ClusterSpec{
+					OrgRef:           orgName,
+					Type:             clusterType,
+					KubeconfigSecret: clusterSecretName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, newCluster)).To(Succeed())
+
+			// Second reconcile should create the new cluster and increment metrics to 2
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(newCluster),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify metrics increased to 2 (original cluster + new cluster)
+			Eventually(func(g Gomega) {
+				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
+				g.Expect(got).To(BeNumerically("==", 2))
+			}).Should(Succeed())
+
+			// Delete the cluster
+			Expect(k8sClient.Delete(ctx, newCluster)).To(Succeed())
+
+			// Reconcile after deletion should trigger finalizer and decrement metrics
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(newCluster),
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify metrics decreased back to 1 (only original cluster remains)
 			Eventually(func(g Gomega) {
 				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
 				g.Expect(got).To(BeNumerically("==", 1))
 			}).Should(Succeed())
 		})
 
-		It("updates cluster metrics when the cluster is deleted", func() {
-			//TODO: Implement this test
-		})
-
 		It("adds the finalizer to the cluster on creation", func() {
-			//TODO: Implement this test
-		})
+			By("Reconciling the created resource")
+			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
 
-		It("removes the finalizer from the cluster on deletion", func() {
-			//TODO: Implement this test
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			// fetch the cluster
+			cluster := &platformv1alpha1.Cluster{}
+			err = k8sClient.Get(ctx, typeNamespacedName, cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cluster.ObjectMeta.Finalizers).To(ContainElement(platformv1alpha1.ClusterFinalizer))
 		})
 	})
 })
+
+// helper function to build a test reconciler
+func buildTestClusterReconciler(targetClientFactory utils.TargetClientFactory) *controllerImpl.ClusterReconciler {
+	controllerReconciler := &controllerImpl.ClusterReconciler{
+		Client:        k8sClient,
+		Scheme:        k8sClient.Scheme(),
+		TargetFactory: targetClientFactory,
+	}
+	return controllerReconciler
+}
+
+// helper function to reset all metrics
+func resetMetrics() {
+	metrics.ClustersPerOrg.Reset()
+	metrics.ProjectsPerOrg.Reset()
+	metrics.ApplicationsPerOrg.Reset()
+	metrics.OrgQuotaUsage.Reset()
+}

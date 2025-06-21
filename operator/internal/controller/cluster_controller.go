@@ -37,6 +37,27 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Check if the object is being deleted
+	if !clu.DeletionTimestamp.IsZero() {
+		log.Info("Cluster is being deleted", "name", req.Name, "namespace", req.Namespace, "deletionTimestamp", clu.DeletionTimestamp)
+		// Object is being deleted, handle finalizer
+		if utils.ContainsString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer) {
+			log.Info("Finalizing Cluster", "name", req.Name, "namespace", req.Namespace)
+
+			// decrement the cluster metrics
+			metrics.DecClusters(clu.Spec.OrgRef)
+
+			// remove the finalizer
+			clu.ObjectMeta.Finalizers = utils.RemoveString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer)
+			if err := r.Update(ctx, &clu); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	log.Info("Cluster is not being deleted", "name", req.Name, "namespace", req.Namespace, "deletionTimestamp", clu.DeletionTimestamp)
+
 	// validate that the org's cluster quota is not exceeded
 	clusterOwnerOrg := &platformv1alpha1.Org{}
 	if err := r.Get(ctx, types.NamespacedName{Name: clu.Spec.OrgRef, Namespace: "default"}, clusterOwnerOrg); err != nil {
@@ -228,25 +249,4 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&platformv1alpha1.Cluster{}).
 		Named("cluster").
 		Complete(r)
-}
-
-// finalizer
-func (r *ClusterReconciler) Finalizer(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-	log.Info("Finalizing Cluster", "name", req.Name, "namespace", req.Namespace)
-	var clu platformv1alpha1.Cluster
-	if err := r.Get(ctx, req.NamespacedName, &clu); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// decrement the cluster metrics
-	metrics.DecClusters(clu.Spec.OrgRef)
-
-	// remove the finalizer
-	clu.ObjectMeta.Finalizers = utils.RemoveString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer)
-	if err := r.Update(ctx, &clu); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
 }

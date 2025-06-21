@@ -66,7 +66,7 @@ var _ = Describe("Org Controller", func() {
 
 		It("should successfully reconcile the resource if crd is created", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := buildTestReconciler()
+			controllerReconciler := buildTestOrgReconciler()
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
@@ -91,8 +91,7 @@ var _ = Describe("Org Controller", func() {
 })
 
 // helper function to build a test reconciler
-func buildTestReconciler() *controller.OrgReconciler {
-	// A reconciler needs caches + metrics – we provide them explicitly
+func buildTestOrgReconciler() *controller.OrgReconciler {
 	return &controller.OrgReconciler{
 		Client: k8sClient,
 		Scheme: k8sClient.Scheme(),

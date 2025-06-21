@@ -39,6 +39,15 @@ spec:
           spec:
             description: ClusterSpec defines the desired state of Cluster.
             properties:
+              clusterID:
+                description: ClusterID is a unique identifier for the cluster
+                pattern: ^[0-9a-fA-F-]{36}$
+                type: string
+              displayName:
+                description: DisplayName is a human-readable name for the cluster
+                maxLength: 100
+                minLength: 3
+                type: string
               kubeconfigSecret:
                 description: When Type==attached, hold secret name that contains kubeconfig.
                 type: string
@@ -134,6 +143,8 @@ spec:
                 - eks
                 type: string
             required:
+            - clusterID
+            - displayName
             - orgRef
             - type
             type: object

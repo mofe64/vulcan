@@ -39,52 +39,113 @@ spec:
           spec:
             description: ProjectSpec defines the desired state of Project.
             properties:
-              ciRepoDefault:
-                description: CIRepoDefault is an optional Git URL pre-filled in the
-                  UI.
-                format: uri
-                type: string
-              clusterSelector:
-                description: |-
-                  ClusterSelector tells the platform where workloads
-                  created in this Project should be deployed by default.
-                properties:
-                  regions:
-                    description: Required for cloud clusters like EKS, AKS, GKE
-                    type: string
-                  type:
-                    description: '''attached'', ''eks'', ''aks'', ''gke'', etc.'
-                    enum:
-                    - attached
-                    - eks
-                    - aks
-                    - gke
-                    type: string
-                required:
-                - type
-                type: object
               displayName:
                 description: DisplayName is a human-readable name for the project
                 maxLength: 100
                 minLength: 3
                 type: string
               orgRef:
-                description: OrgRef is the reference to the name of theorganization
+                description: OrgRef is the reference to the name of the organization
                   this project belongs to
                 pattern: ^[0-9a-fA-F-]{36}$
                 type: string
+              projectID:
+                description: ProjectID is a unique identifier for the project
+                pattern: ^[0-9a-fA-F-]{36}$
+                type: string
+              projectMaxCores:
+                default: 100
+                description: ProjectMaxCores is the maximum number of cores that can
+                  be used by the project
+                maximum: 100
+                minimum: 1
+                type: integer
+              projectMaxEphemeralStorageInGigabytes:
+                default: 20
+                description: ProjectMaxStorage is the maximum amount of storage that
+                  can be used by the project
+                maximum: 100
+                minimum: 1
+                type: integer
+              projectMaxMemoryInGigabytes:
+                default: 20
+                description: ProjectMaxMemory is the maximum amount of memory that
+                  can be used by the project
+                maximum: 100
+                minimum: 1
+                type: integer
+              projectNamespace:
+                description: |-
+                  ProjectNamespace is the namespace that the project will be deployed to
+                  if not provided, a namespace will be created with the name of the project
+                type: string
             required:
-            - clusterSelector
             - displayName
             - orgRef
+            - projectID
+            - projectMaxCores
+            - projectMaxEphemeralStorageInGigabytes
+            - projectMaxMemoryInGigabytes
             type: object
           status:
             description: ProjectStatus defines the observed state of Project.
             properties:
-              namespace:
-                type: string
-              phase:
-                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
             type: object
         type: object
     served: true

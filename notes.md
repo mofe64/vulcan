@@ -35,9 +35,9 @@ generate work file to link modules -> `go work init ./ ./operator`
 
 ## debug
 
-### ßFixing “undefined: platformv1”
+### ßFixing "undefined: platformv1"
 
-The compiler can’t see the generated package. Do all three checks:
+The compiler can't see the generated package. Do all three checks:
 
 Import it in the file (often with an alias):
 
@@ -82,17 +82,17 @@ Quick-reference summary
   failed to get server groups: unknown
   ```
 
-  (surfaces as “Failed to list nodes” when the client’s discovery call fails)
+  (surfaces as "Failed to list nodes" when the client's discovery call fails)
 
 - **Root cause**
   The kubeconfig stored in the Secret pointed to a **file-path CA certificate**
   (`certificate-authority: /tmp/.../ca.crt`).
   When the controller read the Secret later, that temp file no longer existed, so
   the TLS handshake with the API server failed and discovery (`GET /apis`) could
-  not fetch “server groups”.
+  not fetch "server groups".
 
 - **Fix applied**
-  Generate the kubeconfig with the control plane’s **CA bytes embedded** as
+  Generate the kubeconfig with the control plane's **CA bytes embedded** as
   `certificate-authority-data` (helper `kubeconfigWithEmbeddedCA`).
   This makes the kubeconfig self-contained and immune to missing temp files.
   _(Optional for throwaway tests: set `InsecureSkipTLSVerify: true` instead.)_
@@ -100,3 +100,75 @@ Quick-reference summary
 Keep this three-liner handy; if you see the same discovery error in another
 project, first check whether the kubeconfig is still referencing a vanished
 `ca.crt` file.
+
+# Vulcan Platform Notes
+
+## Namespace-Scoped Role Binding System
+
+The Vulcan platform implements a namespace-scoped role binding system that automatically creates Kubernetes RBAC role bindings for project members based on their project-level roles.
+
+### How It Works
+
+1. **Project Member Roles**: Users can have three roles within a project:
+
+   - `admin`: Full administrative access to the project namespace
+   - `maintainer`: Edit access to resources in the project namespace
+   - `viewer`: Read-only access to resources in the project namespace
+
+2. **Kubernetes Role Mapping**: Project roles are mapped to standard Kubernetes ClusterRoles:
+
+   - `admin` → `admin` ClusterRole (full permissions)
+   - `maintainer` → `edit` ClusterRole (create, update, delete permissions)
+   - `viewer` → `view` ClusterRole (read-only permissions)
+
+3. **Namespace Isolation**: Each project gets its own namespace where role bindings are created, ensuring that users can only access resources within their assigned project namespace.
+
+### Implementation Details
+
+#### Database Schema
+
+- `project_members` table stores user-project-role relationships
+- `users` table stores user information including email addresses
+- The system joins these tables to get user emails for role binding creation
+
+#### Controller Logic
+
+The `ProjectClusterBindingReconciler` handles the creation of role bindings:
+
+1. **Project Member Lookup**: Queries the database to get all project members with their roles and email addresses
+2. **Role Mapping**: Maps project roles to Kubernetes roles
+3. **Role Binding Creation**: Uses the `utils.EnsureRoleBinding` function to create namespace-scoped role bindings
+4. **Error Handling**: Provides detailed error messages and status conditions for troubleshooting
+
+#### Role Binding Structure
+
+Each role binding follows this pattern:
+
+- **Name**: `rb-{role}-{email}` (e.g., `rb-admin-user@example.com`)
+- **Namespace**: Project-specific namespace
+- **Subject**: User email address
+- **Role Reference**: Standard Kubernetes ClusterRole (`admin`, `edit`, or `view`)
+
+### Benefits
+
+1. **Security**: Namespace isolation prevents cross-project access
+2. **Simplicity**: Uses standard Kubernetes ClusterRoles, no custom roles needed
+3. **Consistency**: Same permission model across all Kubernetes distributions
+4. **Maintainability**: Leverages existing Kubernetes RBAC infrastructure
+5. **Auditability**: Clear role binding names make it easy to track permissions
+
+### Usage Example
+
+When a user is added to a project with the `maintainer` role:
+
+1. The system creates a role binding in the project namespace
+2. The user gets `edit` permissions within that namespace only
+3. They can create, update, and delete resources but cannot manage RBAC
+4. Access is automatically restricted to the project namespace
+
+### Troubleshooting
+
+- Check the ProjectClusterBinding status conditions for error messages
+- Verify that user emails exist in the database
+- Ensure the target cluster is accessible
+- Review operator logs for detailed role binding creation information

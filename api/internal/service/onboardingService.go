@@ -58,13 +58,15 @@ func (s *onboardingService) Onboard(ctx context.Context, sub string, email strin
 	}
 	// create default org and add user as admin
 	oidOrg := uuid.New()
-	_, _ = tx.Exec(ctx, `INSERT INTO orgs(id,name,owner_id) VALUES($1,'default-org',$2)`, oidOrg, userId)
-	_, _ = tx.Exec(ctx, `INSERT INTO org_members(user_id,org_id,role) VALUES($1,$2,'admin')`, userId, oidOrg)
+	defaultOrgDomain := "default-org.vulkan.io"
+	orgName := "default-org"
+	_, _ = tx.Exec(ctx, `INSERT INTO orgs(id, name, owner_id, domain) VALUES($1,$2,$3,$4)`, oidOrg, orgName, userId, defaultOrgDomain)
+	_, _ = tx.Exec(ctx, `INSERT INTO org_members(user_id,org_id,role) VALUES($1,$2,'admin')`, userId, oidOrg, "admin")
 
 	// create default project and add user as admin
 	oidProj := uuid.New()
 	_, _ = tx.Exec(ctx, `INSERT INTO projects(id,org_id,name) VALUES($1,$2,'default-proj')`, oidProj, oidOrg)
-	_, _ = tx.Exec(ctx, `INSERT INTO project_members(user_id,project_id,role) VALUES($1,$2,'admin')`, userId, oidProj)
+	_, _ = tx.Exec(ctx, `INSERT INTO project_members(user_id,project_id,role) VALUES($1,$2,'admin')`, userId, oidProj, "admin")
 
 	// create default cluster record
 	oidCluster := uuid.New()
@@ -103,10 +105,10 @@ func (s *onboardingService) Onboard(ctx context.Context, sub string, email strin
 			Labels: map[string]string{"org": oidOrg.String()},
 		},
 		Spec: platformv1.ClusterSpec{
-			Type:             "attached",
-			Region:           "",
-			KubeconfigSecret: s.vCfg.DefaultAttachedClusterConnectionSecret,
-			OrgRef:           oidOrg.String(),
+			Type:                 "attached",
+			Region:               "",
+			KubeconfigSecretName: s.vCfg.DefaultAttachedClusterConnectionSecret,
+			OrgRef:               oidOrg.String(),
 		},
 	}); err != nil {
 		s.revertOnboarding(ctx, tx, userId, oidOrg, oidProj, oidCluster)
@@ -131,8 +133,8 @@ func (s *onboardingService) Onboard(ctx context.Context, sub string, email strin
 			Name: fmt.Sprintf("%s-%s", oidProj.String(), oidCluster.String()),
 		},
 		Spec: platformv1.ProjectClusterBindingSpec{
-			ProjectID: oidProj.String(),
-			ClusterID: oidCluster.String(),
+			ProjectRef: oidProj.String(),
+			ClusterRef: oidCluster.String(),
 		},
 	}); err != nil {
 		s.revertOnboarding(ctx, tx, userId, oidOrg, oidProj, oidCluster)

@@ -41,14 +41,19 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 			// delete all cluster bindings for this project
 			var clusterBindings platformv1alpha1.ProjectClusterBindingList
-			if err := r.List(ctx, &clusterBindings, client.MatchingFields{
-				"spec.projectRef": proj.Name,
-			}); err != nil {
+			if err := r.List(ctx, &clusterBindings); err != nil {
 				log.Error(err, "Failed to list cluster bindings", "id", proj.Name, "org", proj.Spec.OrgRef)
 				return ctrl.Result{}, err
 			}
 
-			for _, clusterBinding := range clusterBindings.Items {
+			var projectClusterBindings platformv1alpha1.ProjectClusterBindingList
+			for _, cb := range clusterBindings.Items {
+				if cb.Spec.ProjectRef == proj.Spec.ProjectID {
+					projectClusterBindings.Items = append(projectClusterBindings.Items, cb)
+				}
+			}
+
+			for _, clusterBinding := range projectClusterBindings.Items {
 				if err := r.Delete(ctx, &clusterBinding); err != nil {
 					log.Error(err, "Failed to delete cluster binding", "projectName",
 						proj.Spec.DisplayName, "clusterRef", clusterBinding.Spec.ClusterRef)
@@ -58,7 +63,10 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 						Reason:  "ClusterBindingDeletionError",
 						Message: err.Error(),
 					})
-					_ = r.Status().Update(ctx, &proj)
+					if err := r.Status().Update(ctx, &proj); err != nil {
+						log.Error(err, "Failed to update project status", "projectName", proj.Spec.DisplayName)
+						return ctrl.Result{}, err
+					}
 					return ctrl.Result{
 						RequeueAfter: time.Minute * 5,
 					}, err
@@ -69,16 +77,9 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// remove the finalizer
 			proj.ObjectMeta.Finalizers = utils.RemoveString(proj.ObjectMeta.Finalizers, platformv1alpha1.ProjectFinalizer)
 			if err := r.Update(ctx, &proj); err != nil {
+				log.Error(err, "Failed to update project", "projectName", proj.Spec.DisplayName)
 				return ctrl.Result{}, err
 			}
-
-			//clear error condition if it exists
-			apimeta.SetStatusCondition(&proj.Status.Conditions, metav1.Condition{
-				Type:    platformv1alpha1.Error,
-				Status:  metav1.ConditionFalse,
-				Reason:  "ClusterBindingDeletionError",
-				Message: "",
-			})
 
 			// decrement the project metrics
 			metrics.DecProjects(proj.Spec.OrgRef)
@@ -88,9 +89,29 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	apimeta.SetStatusCondition(&proj.Status.Conditions, metav1.Condition{
+		Type:    platformv1alpha1.Ready,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Reconciled",
+		Message: "Project is healthy",
+	})
+	if err := r.Status().Update(ctx, &proj); err != nil {
+		log.Error(err, "Failed to update project status", "projectName", proj.Spec.DisplayName)
+		return ctrl.Result{}, err
+	}
+
+	// add the finalizer
+	if !utils.ContainsString(proj.ObjectMeta.Finalizers, platformv1alpha1.ProjectFinalizer) {
+		proj.ObjectMeta.Finalizers = append(proj.ObjectMeta.Finalizers, platformv1alpha1.ProjectFinalizer)
+		if err := r.Update(ctx, &proj); err != nil {
+			log.Error(err, "Error updating project")
+			return ctrl.Result{}, err
+		}
+	}
+
 	metrics.IncProjects(proj.Spec.OrgRef)
 
-	log.Info("Project reconciled", "id", proj.Name)
+	log.Info("Project reconciled", "id", proj.Spec.ProjectID)
 	return ctrl.Result{}, nil
 }
 

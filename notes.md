@@ -172,3 +172,53 @@ When a user is added to a project with the `maintainer` role:
 - Verify that user emails exist in the database
 - Ensure the target cluster is accessible
 - Review operator logs for detailed role binding creation information
+
+## Kubernetes Controller UID Conflict Error
+
+### The Problem
+
+During project deletion, the controller encountered a UID conflict error:
+
+```
+Operation cannot be fulfilled on projects.platform.platform.io: StorageError: invalid object, Code: 4,
+AdditionalErrorMsg: Precondition failed: UID in precondition: d983a792-d884-4c27-8faa-060fd610eb9f, UID in object meta:
+```
+
+### Why It Occurred
+
+The issue happened due to optimistic concurrency control in Kubernetes:
+
+1. **Initial Get**: Controller retrieves project object with UID `d983a792-d884-4c27-8faa-060fd610eb9f`
+2. **Finalizer Removal**: Controller removes finalizer and updates object via `r.Update()`
+3. **UID Change**: Kubernetes assigns a new UID to the object after finalizer removal
+4. **Stale Reference**: The `proj` variable still contains the old UID
+5. **Failed Status Update**: Controller tries to update status using stale object metadata, causing UID mismatch
+
+### The Fix
+
+Removed the unnecessary status update after finalizer removal:
+
+```go
+// REMOVED - This was causing the UID conflict:
+//clear error condition if it exists
+apimeta.SetStatusCondition(&proj.Status.Conditions, metav1.Condition{
+    Type:    platformv1alpha1.Error,
+    Status:  metav1.ConditionFalse,
+    Reason:  "ClusterBindingDeletionError",
+    Message: "",
+})
+if err := r.Status().Update(ctx, &proj); err != nil {
+    log.Error(err, "Failed to update project error status", "projectName", proj.Spec.DisplayName)
+    return ctrl.Result{}, err
+}
+```
+
+### Why This Works
+
+- The status update was redundant since the project is being deleted anyway
+- Error conditions are only set when there's an actual deletion error, in which case the controller returns early
+- Eliminating the second update prevents the UID conflict entirely
+
+### Lesson Learned
+
+When performing multiple updates on the same object in a single reconciliation cycle, especially with finalizers and deletion timestamps, be aware that object metadata (including UID) may change between updates. Avoid unnecessary status updates during deletion phases.

@@ -2,22 +2,19 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	controllerImpl "github.com/mofe64/vulkan/operator/internal/controller"
@@ -26,446 +23,420 @@ import (
 	testUtils "github.com/mofe64/vulkan/operator/test/utils"
 )
 
-var (
-	clusterNamespace    = "default"
-	clusterSecretName   = "test-kubeconfig"
-	clusterNodeName     = "fake-node-0"
-	orgName             = "test-org"
-	clusterType         = "attached"
-	targetClientFactory utils.TargetClientFactory
-)
+// -----------------------------------------------------------------------------
+// Helpers shared by all specs
+// -----------------------------------------------------------------------------
 
-//Note -> orgs and clusters are created in the same namespace
-
-// helper: stub TargetClientFactory so we create error scenarios
+// Target‑factory stub that always returns an *empty* cluster (zero Nodes).
+// Used by the "no nodes" scenario.
 type noNodeTargetClusterClientFactory struct{}
 
 func (f *noNodeTargetClusterClientFactory) ClientFor(ctx context.Context, _ *platformv1alpha1.Cluster) (client.Client, error) {
-	// client-with-empty-cache: return an in-memory client with no Node objects
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	return fake.NewClientBuilder().WithScheme(scheme).Build(), nil
 }
 
-var _ = Describe("Cluster Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
-
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: clusterNamespace,
-		}
-		cluster := &platformv1alpha1.Cluster{}
-
-		BeforeEach(func() {
-			// Reset metrics registry to ensure clean state for each test
-			resetMetrics()
-
-			By("creating the cluster resource and it's kubeconfig secret for the test Cluster")
-
-			// create the org resource (check if it exists first)
-			org := &platformv1alpha1.Org{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: orgName, Namespace: clusterNamespace}, org)
-			if err != nil && errors.IsNotFound(err) {
-				org = &platformv1alpha1.Org{
-					ObjectMeta: metav1.ObjectMeta{Name: orgName, Namespace: clusterNamespace},
-					Spec: platformv1alpha1.OrgSpec{
-						OrgQuota:    platformv1alpha1.OrgQuota{Clusters: 10, Apps: 10},
-						DisplayName: orgName + "-display-name",
-						OwnerEmail:  "test@test.com",
-					},
-				}
-				Expect(k8sClient.Create(ctx, org)).To(Succeed())
-			}
-
-			// create a kubeconfig for the test cluster
-			kcBytes, err := testUtils.KubeconfigWithEmbeddedCA(testEnv.Config)
-			Expect(err).NotTo(HaveOccurred())
-			// create a kubeconfig secret for the test cluster
-			kcfg := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      clusterSecretName,
-					Namespace: clusterNamespace,
-				},
-				Data: map[string][]byte{"kubeconfig": kcBytes},
-			}
-			Expect(k8sClient.Create(ctx, kcfg)).To(Succeed())
-
-			// create a fake ready node for the test cluster
-			ready := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: clusterNodeName},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{{
-						Type:               corev1.NodeReady,
-						Status:             corev1.ConditionTrue,
-						LastHeartbeatTime:  metav1.Now(),
-						LastTransitionTime: metav1.Now(),
-					}},
-				},
-			}
-			Expect(k8sClient.Create(ctx, ready)).To(Succeed())
-
-			// create the cluster resource
-			err = k8sClient.Get(ctx, typeNamespacedName, cluster)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &platformv1alpha1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: clusterNamespace,
-					},
-					Spec: platformv1alpha1.ClusterSpec{
-						OrgRef:           orgName,
-						Type:             clusterType,
-						KubeconfigSecret: clusterSecretName,
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			} else if err == nil {
-				// Cluster exists, check if it has a deletion timestamp
-				if !cluster.DeletionTimestamp.IsZero() {
-					// Wait for deletion to complete, then recreate
-					Eventually(func(g Gomega) {
-						err := k8sClient.Get(ctx, typeNamespacedName, cluster)
-						g.Expect(err).To(HaveOccurred())
-						g.Expect(errors.IsNotFound(err)).To(BeTrue())
-					}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
-
-					// Recreate the cluster
-					resource := &platformv1alpha1.Cluster{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      resourceName,
-							Namespace: clusterNamespace,
-						},
-						Spec: platformv1alpha1.ClusterSpec{
-							OrgRef:           orgName,
-							Type:             clusterType,
-							KubeconfigSecret: clusterSecretName,
-						},
-					}
-					Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-				}
-			}
-
-			// create the target client factory
-			targetClientFactory = utils.NewTargetClientFactory(k8sClient)
-
-		})
-
-		AfterEach(func() {
-			// Clean up in reverse order to avoid dependency issues
-			By("Cleanup the test Cluster")
-			// First, try to delete the cluster resource
-			resource := &platformv1alpha1.Cluster{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			if err == nil {
-				fmt.Println("Deleting the test Cluster", "name", resource.Name, "namespace", resource.Namespace)
-				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-
-				// If the cluster has a finalizer, trigger a reconcile to remove it
-				if utils.ContainsString(resource.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer) {
-					controllerReconciler := buildTestClusterReconciler(targetClientFactory)
-					_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-						NamespacedName: typeNamespacedName,
-					})
-					Expect(err).NotTo(HaveOccurred())
-				}
-
-				// Wait for the cluster to be fully deleted
-				Eventually(func(g Gomega) {
-					err := k8sClient.Get(ctx, typeNamespacedName, resource)
-					g.Expect(err).To(HaveOccurred())
-					g.Expect(errors.IsNotFound(err)).To(BeTrue())
-				}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
-			} else {
-				fmt.Println("Cluster not found", "name", resource.Name, "namespace", resource.Namespace)
-			}
-
-			// delete the kubeconfig secret
-			Expect(k8sClient.Delete(ctx, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      clusterSecretName,
-					Namespace: clusterNamespace,
-				},
-			})).To(Succeed())
-
-			// delete the fake node
-			Expect(k8sClient.Delete(ctx, &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: clusterNodeName},
-			})).To(Succeed())
-
-			// delete the org resource
-			Expect(k8sClient.Delete(ctx, &platformv1alpha1.Org{
-				ObjectMeta: metav1.ObjectMeta{Name: orgName, Namespace: clusterNamespace},
-			})).To(Succeed())
-		})
-
-		It("should successfully reconcile the resource if all fields are valid and the cluster is healthy", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			// check the cluster ready condition
-			Eventually(func(g Gomega) {
-				var updated platformv1alpha1.Cluster
-				err := k8sClient.Get(ctx, typeNamespacedName, &updated)
-				g.Expect(err).ToNot(HaveOccurred())
-
-				cond := apimeta.FindStatusCondition(updated.Status.Conditions, platformv1alpha1.Ready)
-				g.Expect(cond).ToNot(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal("Reconciled"))
-			}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
-
-			// check the kubeconfig secret
-			kcfg := &corev1.Secret{}
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: clusterSecretName, Namespace: clusterNamespace}, kcfg)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(kcfg.Data["kubeconfig"]).NotTo(BeEmpty())
-		})
-
-		It("marks Ready=False when the kubeconfig secret is missing", func() {
-			ctx := context.Background()
-
-			// create the Cluster but NOT its secret
-			cluster := &platformv1alpha1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "missing-secret",
-					Namespace: clusterNamespace,
-				},
-				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           orgName,
-					Type:             clusterType,
-					KubeconfigSecret: "idontexist",
-				},
-			}
-			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-			r := buildTestClusterReconciler(targetClientFactory)
-
-			// trigger one reconcile cycle
-			res, err := r.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      cluster.Name,
-					Namespace: cluster.Namespace,
-				},
-			})
-
-			// assert the cluster is not ready
-			Expect(err).NotTo(HaveOccurred())
-			Expect(res.RequeueAfter).To(Equal(5 * time.Minute))
-
-			Eventually(func(g Gomega) {
-				var updated platformv1alpha1.Cluster
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &updated)).To(Succeed())
-
-				ready := apimeta.FindStatusCondition(updated.Status.Conditions, platformv1alpha1.Ready)
-				errC := apimeta.FindStatusCondition(updated.Status.Conditions, platformv1alpha1.Error)
-
-				g.Expect(ready).NotTo(BeNil())
-				g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(ready.Reason).To(Equal("KubeconfigSecretMissing"))
-
-				g.Expect(errC).NotTo(BeNil())
-				g.Expect(errC.Status).To(Equal(metav1.ConditionTrue))
-			}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
-		})
-
-		It("marks Ready=False when the cluster has zero nodes", func() {
-			ctx := context.Background()
-
-			cluster := &platformv1alpha1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "no-nodes",
-					Namespace: clusterNamespace,
-				},
-				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           orgName,
-					Type:             clusterType,
-					KubeconfigSecret: clusterSecretName,
-				},
-			}
-			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-			r := buildTestClusterReconciler(&noNodeTargetClusterClientFactory{})
-
-			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
-			Expect(err).NotTo(HaveOccurred())
-
-			Eventually(func(g Gomega) {
-				var updated platformv1alpha1.Cluster
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &updated)).To(Succeed())
-
-				ready := apimeta.FindStatusCondition(updated.Status.Conditions, platformv1alpha1.Ready)
-				g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(ready.Reason).To(Equal("HealthCheckFailed"))
-				g.Expect(ready.Message).To(ContainSubstring("No nodes found"))
-			}).Should(Succeed())
-		})
-
-		It("marks Ready=False when at least one node is NotReady", func() {
-			ctx := context.Background()
-
-			// create a fake node for the test cluster
-			Expect(k8sClient.Create(ctx, &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "sad-node"},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{{
-						Type:               corev1.NodeReady,
-						Status:             corev1.ConditionFalse,
-						LastHeartbeatTime:  metav1.Now(),
-						LastTransitionTime: metav1.Now(),
-						Reason:             "KubeletNotReady",
-					}},
-				},
-			})).To(Succeed())
-
-			// cluster object
-			cluster := &platformv1alpha1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "unhealthy",
-					Namespace: clusterNamespace,
-				},
-				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           orgName,
-					Type:             clusterType,
-					KubeconfigSecret: clusterSecretName,
-				},
-			}
-			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
-
-			r := buildTestClusterReconciler(targetClientFactory)
-
-			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
-			Expect(err).NotTo(HaveOccurred())
-
-			Eventually(func(g Gomega) {
-				var updated platformv1alpha1.Cluster
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &updated)).To(Succeed())
-
-				ready := apimeta.FindStatusCondition(updated.Status.Conditions, platformv1alpha1.Ready)
-				g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(ready.Reason).To(Equal("HealthCheckFailed"))
-				g.Expect(ready.Message).To(ContainSubstring("is not ready"))
-			}).Should(Succeed())
-
-			// delete the node
-			Expect(k8sClient.Delete(ctx, &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "sad-node"},
-			})).To(Succeed())
-
-		})
-
-		It("updates cluster metrics when the cluster is created", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			// cluster count should be 1 after before each runs
-			Eventually(func(g Gomega) {
-				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
-				g.Expect(got).To(BeNumerically("==", 1))
-			}).Should(Succeed())
-
-		})
-
-		It("updates cluster metrics when the cluster is deleted", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
-
-			// First reconcile the original cluster to increment metrics to 1
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify original cluster is counted
-			Eventually(func(g Gomega) {
-				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
-				g.Expect(got).To(BeNumerically("==", 1))
-			}).Should(Succeed())
-
-			newCluster := &platformv1alpha1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "new-cluster",
-					Namespace: clusterNamespace,
-				},
-				Spec: platformv1alpha1.ClusterSpec{
-					OrgRef:           orgName,
-					Type:             clusterType,
-					KubeconfigSecret: clusterSecretName,
-				},
-			}
-			Expect(k8sClient.Create(ctx, newCluster)).To(Succeed())
-
-			// Second reconcile should create the new cluster and increment metrics to 2
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(newCluster),
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify metrics increased to 2 (original cluster + new cluster)
-			Eventually(func(g Gomega) {
-				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
-				g.Expect(got).To(BeNumerically("==", 2))
-			}).Should(Succeed())
-
-			// Delete the cluster
-			Expect(k8sClient.Delete(ctx, newCluster)).To(Succeed())
-
-			// Reconcile after deletion should trigger finalizer and decrement metrics
-			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(newCluster),
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			// Verify metrics decreased back to 1 (only original cluster remains)
-			Eventually(func(g Gomega) {
-				got := testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(orgName))
-				g.Expect(got).To(BeNumerically("==", 1))
-			}).Should(Succeed())
-		})
-
-		It("adds the finalizer to the cluster on creation", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := buildTestClusterReconciler(targetClientFactory)
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// fetch the cluster
-			cluster := &platformv1alpha1.Cluster{}
-			err = k8sClient.Get(ctx, typeNamespacedName, cluster)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cluster.ObjectMeta.Finalizers).To(ContainElement(platformv1alpha1.ClusterFinalizer))
-		})
-	})
-})
-
-// helper function to build a test reconciler
 func buildTestClusterReconciler(targetClientFactory utils.TargetClientFactory) *controllerImpl.ClusterReconciler {
-	controllerReconciler := &controllerImpl.ClusterReconciler{
+	return &controllerImpl.ClusterReconciler{
 		Client:        k8sClient,
 		Scheme:        k8sClient.Scheme(),
 		TargetFactory: targetClientFactory,
 	}
-	return controllerReconciler
 }
 
-// helper function to reset all metrics
 func resetMetrics() {
 	metrics.ClustersPerOrg.Reset()
 	metrics.ProjectsPerOrg.Reset()
 	metrics.ApplicationsPerOrg.Reset()
 	metrics.OrgQuotaUsage.Reset()
 }
+
+// makeCluster scaffolds a Cluster CR for the given namespace / secret.
+func makeCluster(ns, secretName, orgID string, clusterType string) *platformv1alpha1.Cluster {
+	return &platformv1alpha1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-" + uuid.NewString(),
+			Namespace: ns,
+		},
+		Spec: platformv1alpha1.ClusterSpec{
+			OrgRef:                    orgID,
+			Type:                      clusterType,
+			KubeconfigSecretName:      secretName,
+			KubeconfigSecretNamespace: ns,
+			DisplayName:               "display‑" + uuid.NewString(),
+			ClusterID:                 uuid.NewString(),
+		},
+	}
+}
+
+func makeOrg(ns, orgID string) *platformv1alpha1.Org {
+	return &platformv1alpha1.Org{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "org-" + orgID,
+			Namespace: ns,
+		},
+		Spec: platformv1alpha1.OrgSpec{
+			OrgID:       orgID,
+			DisplayName: "display-" + uuid.NewString(),
+			OwnerEmail:  "test@test.com",
+			OrgQuota:    platformv1alpha1.OrgQuota{Clusters: 10, Apps: 10},
+		},
+	}
+}
+
+func makeOrgWithQuota(ns, orgID string, clusters int32, apps int32) *platformv1alpha1.Org {
+	return &platformv1alpha1.Org{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "org-" + orgID,
+			Namespace: ns,
+		},
+		Spec: platformv1alpha1.OrgSpec{
+			OrgID:       orgID,
+			DisplayName: "display-" + uuid.NewString(),
+			OwnerEmail:  "test@test.com",
+			OrgQuota:    platformv1alpha1.OrgQuota{Clusters: clusters, Apps: apps},
+		},
+	}
+}
+
+var _ = Describe("Cluster controller", Ordered, Serial, func() {
+	var (
+		ctx context.Context
+
+		// per‑spec resources
+		ns           *corev1.Namespace
+		kubeSecret   *corev1.Secret
+		reconciler   *controllerImpl.ClusterReconciler
+		createdNodes []string // cluster‑wide objects have to be cleaned up explicitly
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		createdNodes = nil
+
+		// isolated namespace
+		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name: "test-" + uuid.NewString(),
+		}}
+		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+
+		// kubeconfig secret
+		kcBytes, err := testUtils.KubeconfigWithEmbeddedCA(testEnv.Config)
+		Expect(err).NotTo(HaveOccurred())
+
+		kubeSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns.Name,
+				Name:      "kubeconfig-" + uuid.NewString(),
+			},
+			Data: map[string][]byte{"kubeconfig": kcBytes},
+		}
+		Expect(k8sClient.Create(ctx, kubeSecret)).To(Succeed())
+
+		// reconciler & fresh metrics
+		reconciler = buildTestClusterReconciler(utils.NewTargetClientFactory(k8sClient))
+		resetMetrics()
+	})
+
+	AfterEach(func() {
+		// delete any cluster‑scoped objects (Nodes) that this spec created
+		for _, n := range createdNodes {
+			_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: n}})
+		}
+		// finally, drop the namespace – this removes *all* namespaced objects.
+		_ = k8sClient.Delete(ctx, ns)
+	})
+
+	// happy path – Ready=True
+	It("sets Ready=True when the cluster is healthy", func() {
+		// fake a Ready node so health‑check passes
+		readyNodeName := "ready-" + uuid.NewString()
+		createdNodes = append(createdNodes, readyNodeName)
+		Expect(k8sClient.Create(ctx, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: readyNodeName},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionTrue,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			}}},
+		})).To(Succeed())
+
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		// trigger reconcile once
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: cluster.Namespace,
+				Name:      cluster.Name,
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Assert Ready condition becomes True
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+			cond := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+	})
+
+	// error path – kubeconfig secret missing
+	It("sets Ready=False when the kubeconfig secret is missing", func() {
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+		By("creating the cluster resource with an invalid kubeconfigsecret for the test Cluster")
+		cluster := makeCluster(ns.Name, "idontexist", org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: cluster.Namespace,
+				Name:      cluster.Name,
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+
+			ready := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			g.Expect(ready).NotTo(BeNil())
+			g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(ready.Reason).To(Equal("KubeconfigSecretMissing"))
+		}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+	})
+
+	// error path – zero nodes in the attached target cluster
+	It("sets Ready=False when the cluster has zero nodes and cluster is attached", func() {
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: cluster.Namespace,
+				Name:      cluster.Name,
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+			ready := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			g.Expect(ready).NotTo(BeNil())
+			g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(ready.Reason).To(Equal("HealthCheckFailed"))
+			g.Expect(ready.Message).To(ContainSubstring("No nodes"))
+		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+	})
+
+	// error path – zero nodes in the remote target cluster
+	It("sets Ready=False when the cluster has zero nodes and cluster is remote", func() {
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "remote")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		// Use a factory that returns an empty client (no Nodes)
+		r := buildTestClusterReconciler(&noNodeTargetClusterClientFactory{})
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+			ready := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			g.Expect(ready).NotTo(BeNil())
+			g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(ready.Reason).To(Equal("HealthCheckFailed"))
+			g.Expect(ready.Message).To(ContainSubstring("No nodes"))
+		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+	})
+
+	// error path – at least one NotReady node
+	It("sets Ready=False when a node is NotReady", func() {
+		notReadyNode := "sad-" + uuid.NewString()
+		createdNodes = append(createdNodes, notReadyNode)
+		Expect(k8sClient.Create(ctx, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: notReadyNode},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionFalse,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+				Reason:             "KubeletNotReady",
+			}}},
+		})).To(Succeed())
+
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+			ready := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			g.Expect(ready).NotTo(BeNil())
+			g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(ready.Reason).To(Equal("HealthCheckFailed"))
+			g.Expect(ready.Message).To(ContainSubstring("not ready"))
+		}).WithTimeout(10 * time.Second).WithPolling(200 * time.Millisecond).Should(Succeed())
+	})
+
+	// metrics – ensure they increment / decrement correctly
+
+	It("updates cluster metrics on create & delete", func() {
+		// fake a Ready node so health‑check passes
+		readyNodeName := "ready-" + uuid.NewString()
+		createdNodes = append(createdNodes, readyNodeName)
+		Expect(k8sClient.Create(ctx, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: readyNodeName},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionTrue,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			}}},
+		})).To(Succeed())
+
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		// first reconcile – metrics should go to 1
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKey{
+			Namespace: cluster.Namespace,
+			Name:      cluster.Name,
+		}})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			g.Expect(testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(cluster.Spec.OrgRef))).
+				To(BeNumerically("==", 1))
+		}).Should(Succeed())
+
+		// delete cluster & reconcile again – metrics should drop to 0
+		Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			g.Expect(testutil.ToFloat64(metrics.ClustersPerOrg.WithLabelValues(cluster.Spec.OrgRef))).
+				To(BeNumerically("==", 0))
+		}).Should(Succeed())
+	})
+
+	// finalizer – added on create
+	It("adds the finalizer to the Cluster on creation", func() {
+		// fake a Ready node so health‑check passes
+		readyNodeName := "ready-" + uuid.NewString()
+		createdNodes = append(createdNodes, readyNodeName)
+		Expect(k8sClient.Create(ctx, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: readyNodeName},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionTrue,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			}}},
+		})).To(Succeed())
+		org := makeOrg(ns.Name, uuid.NewString())
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+			g.Expect(got.Finalizers).To(ContainElement(platformv1alpha1.ClusterFinalizer))
+		}).Should(Succeed())
+	})
+
+	// validate org quota
+	It("sets Ready=False and Error=True when the org quota is exceeded", func() {
+		// fake a Ready node so health‑check passes
+		readyNodeName := "ready-" + uuid.NewString()
+		createdNodes = append(createdNodes, readyNodeName)
+		Expect(k8sClient.Create(ctx, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: readyNodeName},
+			Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionTrue,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			}}},
+		})).To(Succeed())
+
+		org := makeOrgWithQuota(ns.Name, uuid.NewString(), 1, 1)
+		Expect(k8sClient.Create(ctx, org)).To(Succeed())
+
+		cluster := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+		// trigger reconcile once
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: cluster.Namespace,
+				Name:      cluster.Name,
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Assert Ready condition becomes True
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), &got)).To(Succeed())
+			cond := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			g.Expect(cond).NotTo(BeNil())
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+
+		// make second cluster
+		cluster2 := makeCluster(ns.Name, kubeSecret.Name, org.Spec.OrgID, "attached")
+		Expect(k8sClient.Create(ctx, cluster2)).To(Succeed())
+
+		_, err = reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Namespace: cluster2.Namespace,
+				Name:      cluster2.Name,
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			var got platformv1alpha1.Cluster
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster2), &got)).To(Succeed())
+			ready := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Ready)
+			errorCondition := apimeta.FindStatusCondition(got.Status.Conditions, platformv1alpha1.Error)
+			g.Expect(ready).NotTo(BeNil())
+			g.Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(errorCondition).NotTo(BeNil())
+			g.Expect(errorCondition.Status).To(Equal(metav1.ConditionTrue))
+			g.Expect(errorCondition.Reason).To(Equal("ClusterQuotaExceeded"))
+		}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+	})
+})

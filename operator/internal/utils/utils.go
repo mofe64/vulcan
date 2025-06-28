@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -34,7 +35,7 @@ func (f *targetClientFactory) ClientFor(ctx context.Context, clu *platformv1alph
 	// load cluster Secret that holds kubeconfig YAML
 	var sec corev1.Secret
 	err := f.CP.Get(ctx,
-		client.ObjectKey{Namespace: "default", Name: clu.Spec.KubeconfigSecret},
+		client.ObjectKey{Namespace: clu.Spec.KubeconfigSecretNamespace, Name: clu.Spec.KubeconfigSecretName},
 		&sec)
 	if err != nil {
 		return nil, err
@@ -146,4 +147,35 @@ func RemoveString(slice []string, str string) []string {
 		}
 	}
 	return slice
+}
+
+// UpdateClusterStatusWithRetry persists the *Status* of a Cluster CR and
+// automatically retries when the apiserver returns a 409 Conflict.
+//
+// Callers should:
+//
+//  1. Fetch (or already hold) a Cluster object.
+//  2. Mutate **only** its .Status fields / conditions.
+//  3. Pass that object to this function.
+//
+// If all retries are exhausted the last error is returned so that Reconcile
+// can surface it and the request is re-queued.
+func UpdateClusterStatusWithRetry(
+	ctx context.Context,
+	c client.Client,
+	desired *platformv1alpha1.Cluster,
+) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Always re-get in case another writer won the race.
+		var current platformv1alpha1.Cluster
+		if err := c.Get(ctx, client.ObjectKeyFromObject(desired), &current); err != nil {
+			return err
+		}
+
+		// Copy the desired Status onto the fresh object.
+		current.Status = desired.Status
+
+		// Try to write it back.
+		return c.Status().Update(ctx, &current)
+	})
 }

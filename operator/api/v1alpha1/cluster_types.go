@@ -10,10 +10,23 @@ import (
 // ClusterSpec defines the desired state of Cluster.
 type ClusterSpec struct {
 
-	// OrgRef is the reference to the org that the cluster belongs to.
+	// ClusterID is a unique identifier for the cluster
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
+	// +kubebuilder:validation:Unique
+	ClusterID string `json:"clusterID"`
+
+	// DisplayName is a human-readable name for the cluster
+	// +kubebuilder:validation:MinLength=3
+	// +kubebuilder:validation:MaxLength=100
+	DisplayName string `json:"displayName"`
+
+	// OrgRef is the reference to the name of the org that the cluster belongs to.
+	// org names are unique and as such can be used as a reference.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
 	OrgRef string `json:"orgRef"`
 
-	// +kubebuilder:validation:Enum=attached;eks
+	// +kubebuilder:validation:Enum=attached;remote
 	Type string `json:"type"`
 
 	// Region is mandatory for managed clouds.
@@ -23,7 +36,11 @@ type ClusterSpec struct {
 	NodePools []NodePool `json:"nodePools,omitempty"`
 
 	// When Type==attached, hold secret name that contains kubeconfig.
-	KubeconfigSecret string `json:"kubeconfigSecret,omitempty"`
+	KubeconfigSecretName string `json:"kubeconfigSecretName,omitempty"`
+
+	// default is "default"
+	// +kubebuilder:default="default"
+	KubeconfigSecretNamespace string `json:"kubeconfigSecretNamespace,omitempty"`
 }
 
 // NodePool describes ONE group of worker nodes that share the same

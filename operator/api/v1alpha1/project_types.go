@@ -6,40 +6,53 @@ import (
 
 // ProjectSpec defines the desired state of Project.
 type ProjectSpec struct {
-	// OrgRef is the reference to the name of theorganization this project belongs to
+	// OrgRef is the reference to the name of the organization this project belongs to
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
+	// +kubebuilder:validation:Required
 	OrgRef string `json:"orgRef"`
+
+	// ProjectID is a unique identifier for the project
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
+	// +kubebuilder:validation:Unique
+	// +kubebuilder:validation:Required
+	ProjectID string `json:"projectID"`
 
 	// DisplayName is a human-readable name for the project
 	// +kubebuilder:validation:MinLength=3
 	// +kubebuilder:validation:MaxLength=100
+	// +kubebuilder:validation:Unique
+	// +kubebuilder:validation:Required
 	DisplayName string `json:"displayName"`
 
-	// ClusterSelector tells the platform where workloads
-	// created in this Project should be deployed by default.
-	ClusterSelector ClusterSelector `json:"clusterSelector"`
+	// ProjectMaxCores is the maximum number of cores that can be used by the project
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=100
+	ProjectMaxCores int `json:"projectMaxCores"`
 
-	// CIRepoDefault is an optional Git URL pre-filled in the UI.
-	// +kubebuilder:validation:Format=uri
-	CIRepoDefault string `json:"ciRepoDefault,omitempty"`
-}
+	// ProjectMaxMemory is the maximum amount of memory that can be used by the project
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=10
+	ProjectMaxMemory int `json:"projectMaxMemoryInGigabytes"`
 
-type ClusterSelector struct {
-	//'attached', 'eks', 'aks', 'gke', etc.
-	// +kubebuilder:validation:Enum=attached;eks;aks;gke
-	Type string `json:"type"`
+	// ProjectMaxStorage is the maximum amount of storage that can be used by the project
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=20
+	ProjectMaxStorage int `json:"projectMaxEphemeralStorageInGigabytes"`
 
-	// Required for cloud clusters like EKS, AKS, GKE
-	Region string `json:"regions,omitempty"`
+	// ProjectNamespace is the namespace that the project will be deployed to
+	// if not provided, a namespace will be created with the name of the project
+	// +kubebuilder:validation:Optional
+	ProjectNamespace string `json:"projectNamespace,omitempty"`
 }
 
 // ProjectStatus defines the observed state of Project.
 type ProjectStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	Namespace string `json:"namespace,omitempty"` // created by project controller
-	Phase     string `json:"phase,omitempty"`     // Pending → Ready
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 // +kubebuilder:object:root=true

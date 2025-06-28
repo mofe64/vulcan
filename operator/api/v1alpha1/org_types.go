@@ -6,9 +6,14 @@ import (
 
 // OrgSpec defines the desired state of Org.
 type OrgSpec struct {
-	// DisplayName is a human-readable name for the organization
-	// should be unique within the cluster
+
+	// OrgID is a unique identifier for the organization
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
 	// +kubebuilder:validation:Unique
+	// +kubebuilder:validation:Required
+	OrgID string `json:"orgID"`
+
+	// DisplayName is a human-readable name for the organization
 	// +kubebuilder:validation:MinLength=3
 	// +kubebuilder:validation:MaxLength=100
 	// +kubebuilder:validation:Required

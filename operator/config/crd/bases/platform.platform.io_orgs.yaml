@@ -40,11 +40,13 @@ spec:
             description: OrgSpec defines the desired state of Org.
             properties:
               displayName:
-                description: |-
-                  DisplayName is a human-readable name for the organization
-                  should be unique within the cluster
+                description: DisplayName is a human-readable name for the organization
                 maxLength: 100
                 minLength: 3
+                type: string
+              orgID:
+                description: OrgID is a unique identifier for the organization
+                pattern: ^[0-9a-fA-F-]{36}$
                 type: string
               ownerEmail:
                 description: OwnerEmail receieves system notifications and is the
@@ -70,6 +72,7 @@ spec:
                 type: object
             required:
             - displayName
+            - orgID
             - ownerEmail
             type: object
           status:

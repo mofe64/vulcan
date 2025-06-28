@@ -32,6 +32,7 @@ type ClusterReconciler struct {
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling Cluster", "name", req.Name, "namespace", req.Namespace)
+
 	var clu platformv1alpha1.Cluster
 	if err := r.Get(ctx, req.NamespacedName, &clu); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -39,28 +40,38 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Check if the object is being deleted
 	if !clu.DeletionTimestamp.IsZero() {
-		log.Info("Cluster is being deleted", "name", req.Name, "namespace", req.Namespace, "deletionTimestamp", clu.DeletionTimestamp)
-		// Object is being deleted, handle finalizer
+		log.Info("Deleting Cluster", "name", req.Name, "deletionTimestamp", clu.DeletionTimestamp)
+		// cluster is being deleted, handle finalizer
 		if utils.ContainsString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer) {
-			log.Info("Finalizing Cluster", "name", req.Name, "namespace", req.Namespace)
-
-			// decrement the cluster metrics
-			metrics.DecClusters(clu.Spec.OrgRef)
+			log.Info("Finalizing Cluster", "name", req.Name)
 
 			// remove the finalizer
 			clu.ObjectMeta.Finalizers = utils.RemoveString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer)
 			if err := r.Update(ctx, &clu); err != nil {
 				return ctrl.Result{}, err
 			}
+
+			// decrement the cluster metrics
+			metrics.DecClusters(clu.Spec.OrgRef)
 		}
 		return ctrl.Result{}, nil
 	}
 
-	log.Info("Cluster is not being deleted", "name", req.Name, "namespace", req.Namespace, "deletionTimestamp", clu.DeletionTimestamp)
+	log.Info("Non-deleting Reconcile", "name", req.Name)
 
 	// validate that the org's cluster quota is not exceeded
-	clusterOwnerOrg := &platformv1alpha1.Org{}
-	if err := r.Get(ctx, types.NamespacedName{Name: clu.Spec.OrgRef, Namespace: "default"}, clusterOwnerOrg); err != nil {
+
+	var matchingOrgs platformv1alpha1.OrgList
+	err := r.List(ctx, &matchingOrgs)
+	var clusterOwnerOrg *platformv1alpha1.Org
+	for _, org := range matchingOrgs.Items {
+		if org.Spec.OrgID == clu.Spec.OrgRef {
+			clusterOwnerOrg = &org
+			break
+		}
+	}
+
+	if err != nil || clusterOwnerOrg == nil {
 		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
 			Type:               platformv1alpha1.Ready,
 			Status:             metav1.ConditionUnknown,
@@ -75,15 +86,21 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Message:            "Could not find cluster owner org",
 			ObservedGeneration: clu.GetGeneration(),
 		})
-		_ = r.Status().Update(ctx, &clu)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		err = utils.UpdateClusterStatusWithRetry(ctx, r.Client, &clu)
+		if err != nil {
+			log.Error(err, "Error updating cluster status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// get all clusters belonging to the org
 	clustersBelongingToOrg := &platformv1alpha1.ClusterList{}
-	if err := r.List(ctx, clustersBelongingToOrg, client.MatchingLabels{
-		"spec.orgRef": clu.Spec.OrgRef,
-	}); err != nil {
+	// all clusters
+	allClusters := &platformv1alpha1.ClusterList{}
+	err = r.List(ctx, allClusters)
+	if err != nil {
+		log.Error(err, "Error listing all clusters")
 		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
 			Type:               platformv1alpha1.Ready,
 			Status:             metav1.ConditionUnknown,
@@ -98,12 +115,23 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Message:            "Could not find clusters belonging to org",
 			ObservedGeneration: clu.GetGeneration(),
 		})
-		_ = r.Status().Update(ctx, &clu)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		err = utils.UpdateClusterStatusWithRetry(ctx, r.Client, &clu)
+		if err != nil {
+			log.Error(err, "Error updating cluster status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// filter all clusters for those belonging to the org
+	for _, cluster := range allClusters.Items {
+		if cluster.Spec.OrgRef == clu.Spec.OrgRef {
+			clustersBelongingToOrg.Items = append(clustersBelongingToOrg.Items, cluster)
+		}
 	}
 
 	currentClusterCount := int32(len(clustersBelongingToOrg.Items))
-	if currentClusterCount >= clusterOwnerOrg.Spec.OrgQuota.Clusters {
+	if currentClusterCount > clusterOwnerOrg.Spec.OrgQuota.Clusters {
 		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
 			Type:    platformv1alpha1.Ready,
 			Status:  metav1.ConditionFalse,
@@ -116,22 +144,31 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Reason:  "ClusterQuotaExceeded",
 			Message: "Cluster quota exceeded",
 		})
-		_ = r.Status().Update(ctx, &clu)
 
 		// might add logic to delete the cluster
+		err = utils.UpdateClusterStatusWithRetry(ctx, r.Client, &clu)
+		if err != nil {
+			log.Error(err, "Error updating cluster status")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
+
 	}
 
 	// check kubeconfig secret exists
 	var secret corev1.Secret
-	err := r.Get(ctx, types.NamespacedName{Name: clu.Spec.KubeconfigSecret, Namespace: "default"}, &secret)
+	err = r.Get(ctx, types.NamespacedName{
+		Name:      clu.Spec.KubeconfigSecretName,
+		Namespace: clu.Spec.KubeconfigSecretNamespace,
+	}, &secret)
 	if err != nil {
+
 		// set the cluster ready condition to false
 		apimeta.SetStatusCondition(&clu.Status.Conditions, metav1.Condition{
 			Type:               platformv1alpha1.Ready,
 			Status:             metav1.ConditionFalse,
 			Reason:             "KubeconfigSecretMissing",
-			Message:            "Secret " + clu.Spec.KubeconfigSecret + " not found",
+			Message:            "Secret " + clu.Spec.KubeconfigSecretName + " not found in namespace " + clu.Spec.KubeconfigSecretNamespace,
 			ObservedGeneration: clu.GetGeneration(),
 		})
 		// set the cluster error condition to true
@@ -144,10 +181,12 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		})
 
 		// update the cluster status
-		_ = r.Status().Update(ctx, &clu)
-
-		// requeue after a short delay
-		return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
+		err = utils.UpdateClusterStatusWithRetry(ctx, r.Client, &clu)
+		if err != nil {
+			log.Error(err, "Error updating cluster status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// check the cluster health
@@ -168,7 +207,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Message:            msg,
 			ObservedGeneration: clu.GetGeneration(),
 		})
-		_ = r.Status().Update(ctx, &clu)
+		err = utils.UpdateClusterStatusWithRetry(ctx, r.Client, &clu)
+		if err != nil {
+			log.Error(err, "Error updating cluster status")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{RequeueAfter: time.Minute * 2}, nil
 	}
 
@@ -179,6 +222,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if !utils.ContainsString(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer) {
 		clu.ObjectMeta.Finalizers = append(clu.ObjectMeta.Finalizers, platformv1alpha1.ClusterFinalizer)
 		if err := r.Update(ctx, &clu); err != nil {
+			log.Error(err, "Error updating cluster")
 			return ctrl.Result{}, err
 		}
 	}
@@ -199,44 +243,52 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Message:            "No outstanding errors",
 		ObservedGeneration: clu.GetGeneration(),
 	})
-	_ = r.Status().Update(ctx, &clu)
+
+	err = utils.UpdateClusterStatusWithRetry(ctx, r.Client, &clu)
+	if err != nil {
+		log.Error(err, "Error updating cluster status")
+		return ctrl.Result{}, err
+	}
 
 	log.Info("Cluster reconciled", "id", clu.Name, "phase", clu.Status.Conditions)
 	return ctrl.Result{}, nil
 }
 
 func (r *ClusterReconciler) checkClusterHealth(ctx context.Context, clu *platformv1alpha1.Cluster) (bool, string, error) {
-	tgt, err := r.TargetFactory.ClientFor(ctx, clu)
+
+	var tgtClient client.Client
+	var err error
+	if clu.Spec.Type != "attached" {
+		tgtClient, err = r.TargetFactory.ClientFor(ctx, clu)
+	} else {
+		tgtClient = r.Client
+	}
+
 	log := logf.FromContext(ctx)
 	if err != nil {
 		return false, "Failed to create client for cluster", err
 	}
 
 	var nodes corev1.NodeList
-	if err := tgt.List(ctx, &nodes); err != nil {
+	if err := tgtClient.List(ctx, &nodes); err != nil {
 		return false, "unable to list nodes", fmt.Errorf("listing nodes: %w", err)
 	}
 
+	log.Info("Health check", "clusterType", clu.Spec.Type, "nodeCount", len(nodes.Items))
+
 	if len(nodes.Items) == 0 {
+		log.Info("No nodes found in cluster")
 		return false, "No nodes found in cluster", nil
 	}
 	for _, node := range nodes.Items {
 		for _, condition := range node.Status.Conditions {
 			if condition.Type == corev1.NodeReady && condition.Status != corev1.ConditionTrue {
+				log.Info("Node not ready", "nodeName", node.Name, "condition", condition)
 				return false, "Node " + node.Name + " is not ready", nil
 			}
 		}
 	}
 
-	for _, n := range nodes.Items {
-		for _, c := range n.Status.Conditions {
-			if c.Type == corev1.NodeReady && c.Status != corev1.ConditionTrue {
-				return false,
-					fmt.Sprintf("node %s is not Ready", n.Name),
-					nil
-			}
-		}
-	}
 	log.Info("Cluster is healthy", "nodes", len(nodes.Items))
 
 	return true, "Cluster is healthy", nil

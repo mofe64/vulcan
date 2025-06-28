@@ -3,6 +3,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -12,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
+	"github.com/mofe64/vulkan/operator/internal/model"
 	"github.com/mofe64/vulkan/operator/internal/utils"
 )
 
@@ -27,15 +36,6 @@ type ProjectClusterBindingReconciler struct {
 // +kubebuilder:rbac:groups=platform.platform.io,resources=projectclusterbindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.platform.io,resources=projectclusterbindings/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ProjectClusterBinding object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling ProjectClusterBinding", "name", req.Name, "namespace", req.Namespace)
@@ -47,78 +47,259 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 
 	// Fetch referenced Project & Cluster
 	var proj platformv1alpha1.Project
-	if err := r.Get(ctx, types.NamespacedName{Name: binding.Spec.ProjectID}, &proj); err != nil {
-		return r.fail(ctx, &binding, "project lookup", err)
+	if err := r.Get(ctx, types.NamespacedName{Name: binding.Spec.ProjectRef}, &proj); err != nil {
+		// if err is not not found
+		// set unknown condition
+		// and requeue after 5 minutes
+		if !errors.IsNotFound(err) {
+			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+				Type:    platformv1alpha1.Unknown,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ProjectLookupFailed",
+				Message: err.Error(),
+			})
+			_ = r.Status().Update(ctx, &binding)
+			return ctrl.Result{RequeueAfter: time.Minute * 5}, err
+		} else {
+			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+				Type:    platformv1alpha1.Error,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ProjectLookupError",
+				Message: err.Error(),
+			})
+			_ = r.Status().Update(ctx, &binding)
+			return ctrl.Result{}, err
+		}
+
 	}
 	var clu platformv1alpha1.Cluster
-	if err := r.Get(ctx, types.NamespacedName{Name: binding.Spec.ClusterID}, &clu); err != nil {
-		return r.fail(ctx, &binding, "cluster lookup", err)
+	if err := r.Get(ctx, types.NamespacedName{Name: binding.Spec.ClusterRef}, &clu); err != nil {
+		// if err is not not found
+		// set unknown condition
+		// and requeue after 5 minutes
+		if !errors.IsNotFound(err) {
+			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+				Type:    platformv1alpha1.Unknown,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ClusterLookupFailed",
+				Message: err.Error(),
+			})
+			_ = r.Status().Update(ctx, &binding)
+			return ctrl.Result{RequeueAfter: time.Minute * 5}, err
+		} else {
+			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+				Type:    platformv1alpha1.Error,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ClusterLookupError",
+				Message: err.Error(),
+			})
+			_ = r.Status().Update(ctx, &binding)
+			return ctrl.Result{}, err
+		}
 	}
-	// TODO:
-	// should check if we are using default (current)cluster, if yes,
-	// then just use the request client, else
-	// build a client to the *target* cluster using kubeconfig secret
-	tgt, err := r.TargetFactory.ClientFor(ctx, &clu)
-	if err != nil {
-		return r.fail(ctx, &binding, "kubeconfig", err)
+	var k8sClient client.Client
+	var err error
+	if clu.Spec.Type != "attached" {
+		k8sClient, err = r.TargetFactory.ClientFor(ctx, &clu)
+		if err != nil {
+			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+				Type:    platformv1alpha1.Error,
+				Status:  metav1.ConditionTrue,
+				Reason:  "ClusterTargetGenError",
+				Message: err.Error(),
+			})
+			_ = r.Status().Update(ctx, &binding)
+			return ctrl.Result{}, err
+		}
+	} else {
+		k8sClient = r.Client
 	}
 
-	ns := fmt.Sprintf("proj-%s", proj.Name) // namespace pattern
-
-	if err := utils.EnsureNamespace(ctx, tgt, ns, proj.Spec.DisplayName); err != nil {
-		return r.fail(ctx, &binding, "namespace", err)
+	var ns string
+	if proj.Spec.ProjectNamespace != "" {
+		ns = proj.Spec.ProjectNamespace
+	} else {
+		ns = fmt.Sprintf("proj-%s-%s-%s", proj.Spec.OrgRef, proj.Name, proj.Spec.ProjectID)
 	}
 
-	// todo: fetch project members for this project and assign them roles in the target cluster based on their roles in the project
-
-	//todo: validate capacity
-
-	// Update status → Ready
-	if binding.Status.Phase != "Ready" {
-		binding.Status.Phase = "Ready"
-		binding.Status.Message = ""
+	if err := utils.EnsureNamespace(ctx, k8sClient, ns, proj.Spec.DisplayName); err != nil {
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Error,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NamespaceCreationError",
+			Message: err.Error(),
+		})
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Ready,
+			Status:  metav1.ConditionFalse,
+			Reason:  "NamespaceCreationError",
+			Message: err.Error(),
+		})
 		_ = r.Status().Update(ctx, &binding)
+		return ctrl.Result{}, err
 	}
+
+	if err := utils.AddLabelsToNamespace(ctx, r.Client, ns, map[string]string{
+		"vulkan.io/project":     proj.Name,
+		"vulkan.io/projectID":   proj.Spec.ProjectID,
+		"vulkan.io/displayName": proj.Spec.DisplayName,
+		"vulkan.io/org":         proj.Spec.OrgRef,
+	}); err != nil {
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Error,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NamespaceLabelingError",
+			Message: err.Error(),
+		})
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Ready,
+			Status:  metav1.ConditionFalse,
+			Reason:  "NamespaceLabelingError",
+			Message: err.Error(),
+		})
+		_ = r.Status().Update(ctx, &binding)
+		return ctrl.Result{}, err
+	}
+
+	cpuLimitString := fmt.Sprintf("%d", proj.Spec.ProjectMaxCores)
+	memoryLimitString := fmt.Sprintf("%dGi", proj.Spec.ProjectMaxMemory)
+	storageLimitString := fmt.Sprintf("%dGi", proj.Spec.ProjectMaxStorage)
+
+	// create resource quota
+	quota := &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("quota-%s", proj.Name),
+			Namespace: ns,
+		},
+		Spec: corev1.ResourceQuotaSpec{
+			Hard: corev1.ResourceList{
+				corev1.ResourceCPU:              resource.MustParse(cpuLimitString),
+				corev1.ResourceMemory:           resource.MustParse(memoryLimitString),
+				corev1.ResourceEphemeralStorage: resource.MustParse(storageLimitString),
+			},
+		},
+	}
+
+	if err := r.Client.Create(ctx, quota); err != nil {
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Error,
+			Status:  metav1.ConditionTrue,
+			Reason:  "QuotaCreationError",
+			Message: err.Error(),
+		})
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Ready,
+			Status:  metav1.ConditionFalse,
+			Reason:  "QuotaCreationError",
+			Message: err.Error(),
+		})
+		_ = r.Status().Update(ctx, &binding)
+		return ctrl.Result{}, err
+	}
+
+	// create network policy
+	networkPolicy := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-deny",
+			Namespace: ns,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []networkingv1.PolicyType{
+				networkingv1.PolicyTypeIngress,
+				networkingv1.PolicyTypeEgress,
+			},
+		},
+	}
+
+	if err := r.Client.Create(ctx, networkPolicy); err != nil {
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Error,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NetworkPolicyCreationError",
+			Message: err.Error(),
+		})
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Ready,
+			Status:  metav1.ConditionFalse,
+			Reason:  "NetworkPolicyCreationError",
+			Message: err.Error(),
+		})
+		_ = r.Status().Update(ctx, &binding)
+		return ctrl.Result{}, err
+	}
+
+	// Fetch project members for this project and assign them roles in the target cluster based on their roles in the project
+	rows, err := r.DB.Query(ctx, `
+		SELECT pm.project_id, pm.user_id, pm.role, u.email 
+		FROM project_members pm 
+		JOIN users u ON pm.user_id = u.id 
+		WHERE pm.project_id = $1
+	`, proj.Spec.ProjectID)
+	if err != nil {
+		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+			Type:    platformv1alpha1.Error,
+			Status:  metav1.ConditionTrue,
+			Reason:  "ProjectMemberLookupError",
+			Message: err.Error(),
+		})
+		_ = r.Status().Update(ctx, &binding)
+		return ctrl.Result{}, err
+	}
+	defer rows.Close()
+	projectMembers := []model.ProjectMember{}
+	for rows.Next() {
+		var member model.ProjectMember
+		err := rows.Scan(&member.ProjectID, &member.UserID, &member.Role, &member.Email)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		projectMembers = append(projectMembers, member)
+	}
+
+	// Create role bindings for each project member in the target cluster
+	for _, member := range projectMembers {
+		// Map project roles to Kubernetes roles
+		var k8sRole string
+		switch member.Role {
+		case "admin":
+			k8sRole = "admin"
+		case "maintainer":
+			k8sRole = "edit"
+		case "viewer":
+			k8sRole = "view"
+		default:
+			log.Info("Unknown role, skipping", "user", member.Email, "role", member.Role)
+			continue
+		}
+
+		// Create role binding in the project namespace
+		if err := utils.EnsureRoleBinding(ctx, k8sClient, ns, member.Email, k8sRole); err != nil {
+			log.Error(err, "Failed to create role binding", "user", member.Email, "role", k8sRole, "namespace", ns)
+			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+				Type:    platformv1alpha1.Error,
+				Status:  metav1.ConditionTrue,
+				Reason:  "RoleBindingCreationError",
+				Message: fmt.Sprintf("Failed to create role binding for user %s: %v", member.Email, err),
+			})
+			_ = r.Status().Update(ctx, &binding)
+			return ctrl.Result{}, err
+		}
+		log.Info("Created role binding", "user", member.Email, "role", k8sRole, "namespace", ns)
+	}
+
+	// Set binding as ready
+	apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
+		Type:    platformv1alpha1.Ready,
+		Status:  metav1.ConditionTrue,
+		Reason:  "BindingReady",
+		Message: fmt.Sprintf("Successfully created role bindings for %d project members in namespace %s", len(projectMembers), ns),
+	})
+	_ = r.Status().Update(ctx, &binding)
+
 	log.Info("Binding ready", "binding", binding.Name)
 	return ctrl.Result{}, nil
 }
-
-func (r *ProjectClusterBindingReconciler) fail(ctx context.Context, b *platformv1alpha1.ProjectClusterBinding, msg string, err error) (ctrl.Result, error) {
-	b.Status.Phase = "Error"
-	b.Status.Message = fmt.Sprintf("%s: %v", msg, err)
-	_ = r.Status().Update(ctx, b)
-	return ctrl.Result{}, err
-}
-
-// func (r *ProjectClusterBindingReconciler) validateCapacity(ctx context.Context, cluster *v1alpha1.Cluster, project *v1alpha1.Project) error {
-// 	// Get current resource usage
-// 	var pods corev1.PodList
-// 	if err := r.List(ctx, &pods, client.InNamespace(project.Status.Namespace)); err != nil {
-// 		return err
-// 	}
-
-// 	// Calculate required resources
-// 	var requiredCPU resource.Quantity
-// 	var requiredMemory resource.Quantity
-
-// 	for _, pod := range pods.Items {
-// 		for _, container := range pod.Spec.Containers {
-// 			requiredCPU.Add(*container.Resources.Requests.Cpu())
-// 			requiredMemory.Add(*container.Resources.Requests.Memory())
-// 		}
-// 	}
-
-// 	// Check against cluster capacity
-// 	if requiredCPU.Cmp(cluster.Status.AvailableCPU) > 0 {
-// 		return fmt.Errorf("insufficient CPU capacity")
-// 	}
-
-// 	if requiredMemory.Cmp(cluster.Status.AvailableMemory) > 0 {
-// 		return fmt.Errorf("insufficient memory capacity")
-// 	}
-
-// 	return nil
-// }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ProjectClusterBindingReconciler) SetupWithManager(mgr ctrl.Manager) error {

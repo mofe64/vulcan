@@ -23,6 +23,7 @@ CREATE TABLE refresh_tokens (
 CREATE TABLE orgs (
     id         UUID PRIMARY KEY,
     name       TEXT NOT NULL,
+    domain     TEXT UNIQUE NOT NULL,
     owner_user UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT now()
 );

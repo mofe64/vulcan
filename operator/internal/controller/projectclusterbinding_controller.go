@@ -274,6 +274,7 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 			Reason:  "ProjectMemberLookupError",
 			Message: err.Error(),
 		})
+
 		err = r.Status().Update(ctx, &binding)
 		if err != nil {
 			log.Error(err, "Failed to update status", "binding", binding.Name)

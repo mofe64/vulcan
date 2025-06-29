@@ -10,15 +10,17 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	controllerImpl "github.com/mofe64/vulkan/operator/internal/controller"
 	model "github.com/mofe64/vulkan/operator/internal/model"
 	utils "github.com/mofe64/vulkan/operator/internal/utils"
-	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func makeClusterForCBTest(ns, secretName, orgRef string, clusterType string) *platformv1alpha1.Cluster {
@@ -68,7 +70,7 @@ func makeProjectForCBTestWithProjectNamespace(ns, orgRef, projectNamespace strin
 			ProjectMaxCores:   10,
 			ProjectMaxMemory:  20,
 			ProjectMaxStorage: 30,
-			ProjectNamespace:  projectNamespace,
+			ProjectNamespace:  utils.ShortName(projectNamespace, uuid.NewString()),
 		},
 	}
 }
@@ -161,7 +163,11 @@ var _ = Describe("ProjectClusterBinding Controller", func() {
 			}
 
 			_, err := testDB.ExecContext(
-				ctx, `INSERT INTO users (id, oidc_sub, email, created_at) VALUES ($1, $2, $3, $4)`,
+				ctx,
+				`INSERT INTO users (id, oidc_sub, email, created_at) VALUES 
+				($1, $2, $3, $4),
+				($5, $6, $7, $8),
+				($9, $10, $11, $12)`,
 				user1.UserID, "user1_sub", user1.Email, time.Now().Format(time.RFC3339),
 				user2.UserID, "user2_sub", user2.Email, time.Now().Format(time.RFC3339),
 				user3.UserID, "user3_sub", user3.Email, time.Now().Format(time.RFC3339),
@@ -174,7 +180,10 @@ var _ = Describe("ProjectClusterBinding Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = testDB.ExecContext(
-				ctx, `INSERT INTO project_members (user_id, project_id, role) VALUES ($1, $2, $3)`,
+				ctx, `INSERT INTO project_members (user_id, project_id, role) VALUES 
+				($1, $2, $3),
+				($4, $5, $6),
+				($7, $8, $9)`,
 				user1.UserID, project.Spec.ProjectID, user1.Role,
 				user2.UserID, project.Spec.ProjectID, user2.Role,
 				user3.UserID, project.Spec.ProjectID, user3.Role,
@@ -212,7 +221,38 @@ var _ = Describe("ProjectClusterBinding Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("should create a dedicated namespace for the project", func() {
+		It("should create a namespace for the project using the supplied project namespace if provided", func() {
+			By("Creating a project cluster binding")
+			binding := makeProjectClusterBinding(cbNamespace.Name, projectWithNamespace.Name, cluster.Name)
+			Expect(k8sClient.Create(ctx, binding)).To(Succeed())
+
+			By("Reconciling the created resource")
+			reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      binding.Name,
+					Namespace: cbNamespace.Name,
+				},
+			})
+
+			By("Confirming that the namespace was created")
+			Eventually(func(g Gomega) {
+				// confirm that the namespace was created
+				var ns corev1.Namespace
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: projectWithNamespace.Spec.ProjectNamespace}, &ns)).To(Succeed())
+				g.Expect(ns.Name).To(Equal(projectWithNamespace.Spec.ProjectNamespace))
+
+				By("Confirming that the namespace has the correct labels")
+				// confirm that the namespace has the correct labels
+				g.Expect(ns.Labels).To(SatisfyAll(
+					HaveKeyWithValue("vulkan.io/project", projectWithNamespace.Name),
+					HaveKeyWithValue("vulkan.io/projectID", projectWithNamespace.Spec.ProjectID),
+					HaveKeyWithValue("vulkan.io/org", projectWithNamespace.Spec.OrgRef),
+				))
+
+			}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
+		})
+
+		It("should create a dedicated namespace for the project if no project namespace is provided", func() {
 			By("Creating a project cluster binding")
 			binding := makeProjectClusterBinding(cbNamespace.Name, project.Name, cluster.Name)
 			Expect(k8sClient.Create(ctx, binding)).To(Succeed())
@@ -327,17 +367,72 @@ var _ = Describe("ProjectClusterBinding Controller", func() {
 
 		})
 
-	})
-
-	Context("Role Binding Creation", func() {
 		It("should create role bindings for project members", func() {
+			By("Creating a project cluster binding")
+			binding := makeProjectClusterBinding(cbNamespace.Name, project.Name, cluster.Name)
+			Expect(k8sClient.Create(ctx, binding)).To(Succeed())
 
+			By("Reconciling the created resource")
+			reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      binding.Name,
+					Namespace: cbNamespace.Name,
+				},
+			})
+
+			By("Confirming that the role bindings were created")
+			Eventually(func(g Gomega) {
+				prefix := "proj-ns"
+				roleBindingNamespace := utils.ShortName(prefix, fmt.Sprintf("%s-%s", project.Spec.OrgRef, project.Name))
+				// confirm that the role bindings were created
+				var roleBindings rbacv1.RoleBindingList
+				g.Expect(k8sClient.List(ctx, &roleBindings, client.InNamespace(roleBindingNamespace))).To(Succeed())
+				g.Expect(roleBindings.Items).To(HaveLen(3))
+
+				// confirm that the role bindings have the correct subjects and role refs
+				g.Expect(roleBindings.Items[0].Subjects).To(HaveLen(1))
+
+				g.Expect(roleBindings.Items[0].Subjects[0]).To(SatisfyAll(
+					HaveField("Kind", rbacv1.UserKind),
+					HaveField("Name", user1.Email),
+					HaveField("APIGroup", "rbac.authorization.k8s.io"),
+				))
+
+				g.Expect(roleBindings.Items[0].RoleRef).To(SatisfyAll(
+					HaveField("Kind", "ClusterRole"),
+					HaveField("Name", "admin"),
+				))
+
+				g.Expect(roleBindings.Items[1].Subjects[0]).To(SatisfyAll(
+					HaveField("Kind", rbacv1.UserKind),
+					HaveField("Name", user2.Email),
+					HaveField("APIGroup", "rbac.authorization.k8s.io"),
+				))
+				g.Expect(roleBindings.Items[1].RoleRef).To(SatisfyAll(
+					HaveField("Kind", "ClusterRole"),
+					HaveField("Name", "edit"),
+				))
+
+				g.Expect(roleBindings.Items[2].Subjects[0]).To(SatisfyAll(
+					HaveField("Kind", rbacv1.UserKind),
+					HaveField("Name", user3.Email),
+					HaveField("APIGroup", "rbac.authorization.k8s.io"),
+				))
+				g.Expect(roleBindings.Items[2].RoleRef).To(SatisfyAll(
+					HaveField("Kind", "ClusterRole"),
+					HaveField("Name", "view"),
+				))
+
+				// confirm that the role bindings have the correct namespace
+				g.Expect(roleBindings.Items[0].Namespace).To(Equal(roleBindingNamespace))
+				g.Expect(roleBindings.Items[1].Namespace).To(Equal(roleBindingNamespace))
+				g.Expect(roleBindings.Items[2].Namespace).To(Equal(roleBindingNamespace))
+
+			}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
 		})
 
-		It("should create role binding with correct structure", func() {
-
-		})
 	})
+
 })
 
 func buildTestProjectClusterBindingReconciler() *controllerImpl.ProjectClusterBindingReconciler {

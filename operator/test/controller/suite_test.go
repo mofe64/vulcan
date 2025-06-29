@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +10,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -20,6 +20,7 @@ import (
 
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	"github.com/mofe64/vulkan/operator/internal/metrics"
+	utils "github.com/mofe64/vulkan/operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -32,8 +33,8 @@ var (
 	testEnv      *envtest.Environment
 	cfg          *rest.Config
 	k8sClient    client.Client
-	k8sManager   ctrl.Manager
 	testRegistry *prometheus.Registry
+	testDB       *sql.DB
 )
 
 func TestControllers(t *testing.T) {
@@ -82,6 +83,49 @@ var _ = BeforeSuite(func() {
 		metrics.OrgQuotaUsage,
 	)
 
+	// create a temporary directory for the test database
+	tempDir, err := os.MkdirTemp("", "vulkan-test-db")
+	Expect(err).NotTo(HaveOccurred())
+
+	// connect to test database using sqlite
+	testDB, err = utils.ConnectDB(filepath.Join(tempDir, "test.db"))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(testDB).NotTo(BeNil())
+
+	// run migrations
+	_, err = testDB.ExecContext(ctx, `
+		-- Create users table
+		CREATE TABLE IF NOT EXISTS users (
+			id         TEXT PRIMARY KEY,
+			oidc_sub   TEXT UNIQUE NOT NULL,
+			email      TEXT UNIQUE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		
+		-- Create projects table
+		CREATE TABLE IF NOT EXISTS projects (
+			id         TEXT PRIMARY KEY,
+			org_id     TEXT NOT NULL,
+			name       TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		
+		-- Create project_members table
+		CREATE TABLE IF NOT EXISTS project_members (
+			user_id    TEXT NOT NULL,
+			project_id TEXT NOT NULL,
+			role       TEXT NOT NULL CHECK (role IN ('admin', 'maintainer', 'viewer')),
+			PRIMARY KEY (user_id, project_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+		);
+		
+		-- Create indexes
+		CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+		CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
+	`)
+	Expect(err).NotTo(HaveOccurred())
+
 })
 
 var _ = AfterSuite(func() {
@@ -89,6 +133,12 @@ var _ = AfterSuite(func() {
 	cancel()
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
+
+	// close the test database
+	if testDB != nil {
+		testDB.Close()
+	}
+
 })
 
 // getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.

@@ -2,9 +2,16 @@ package utils
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
+	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -12,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
+	_ "modernc.org/sqlite"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -95,12 +103,12 @@ func AddLabelsToNamespace(ctx context.Context, c client.Client, name string, lab
 
 // ensureRoleBinding ensures the subject has desired role inside the namespace.
 // ensureRoleBinding makes sure a RoleBinding exists that grants **one subject**
-// (a user’s email) a standard permission level (admin / edit / view) **inside a
+// (a user's email) a standard permission level (admin / edit / view) **inside a
 // single namespace**.
 //
 // Why do we reference a *ClusterRole* instead of creating a namespaced Role?
 //  1. **Built‑ins already exist** – Kubernetes ships with the ClusterRoles
-//     `admin`, `edit`, and `view`.  Re‑using them means we don’t have to
+//     `admin`, `edit`, and `view`.  Re‑using them means we don't have to
 //     create or maintain a custom Role in *every* project namespace.
 //  2. **Namespaced limitation still applies** – Although the RoleRef points
 //     to a *cluster‑scoped* role, a RoleBinding that lives *inside* a
@@ -178,4 +186,51 @@ func UpdateClusterStatusWithRetry(
 		// Try to write it back.
 		return c.Status().Update(ctx, &current)
 	})
+}
+
+func ConnectDB(raw string) (*sql.DB, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	var driver, dsn string
+	switch strings.ToLower(u.Scheme) {
+	case "postgres", "postgresql", "pgx":
+		driver, dsn = "pgx", raw
+	case "sqlite", "file":
+		driver, dsn = "sqlite", raw
+	case "":
+		// No scheme provided, assume it's a SQLite file path
+		driver, dsn = "sqlite", raw
+	default:
+		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reasonable defaults; tweak to your workload.
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
+	return db, db.Ping()
+}
+
+// ShortName generates a short name from a long string.
+// It uses the SHA-256 hash of the long string to generate a 4-byte ID,
+// then prefixes it with the given prefix and returns the result.
+// The result is trimmed to 63 characters to avoid exceeding the maximum length
+// of a Kubernetes object name.
+func ShortName(prefix, long string) string {
+	h := sha256.Sum256([]byte(long))
+	id := hex.EncodeToString(h[:4])
+	name := prefix + "-" + id
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	return name
 }

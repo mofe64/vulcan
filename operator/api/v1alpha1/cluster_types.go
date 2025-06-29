@@ -20,10 +20,8 @@ type ClusterSpec struct {
 	// +kubebuilder:validation:MaxLength=100
 	DisplayName string `json:"displayName"`
 
-	// OrgRef is the reference to the name of the org that the cluster belongs to.
-	// org names are unique and as such can be used as a reference.
+	// OrgRef is the reference to the name of the org cr that the cluster belongs to.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
 	OrgRef string `json:"orgRef"`
 
 	// +kubebuilder:validation:Enum=attached;remote

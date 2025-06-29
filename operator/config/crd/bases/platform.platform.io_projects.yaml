@@ -45,9 +45,8 @@ spec:
                 minLength: 3
                 type: string
               orgRef:
-                description: OrgRef is the reference to the name of the organization
-                  this project belongs to
-                pattern: ^[0-9a-fA-F-]{36}$
+                description: OrgRef is the reference to the name of the org cr that
+                  the project belongs to.
                 type: string
               projectID:
                 description: ProjectID is a unique identifier for the project

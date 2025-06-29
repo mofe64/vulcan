@@ -135,10 +135,8 @@ spec:
                   type: object
                 type: array
               orgRef:
-                description: |-
-                  OrgRef is the reference to the name of the org that the cluster belongs to.
-                  org names are unique and as such can be used as a reference.
-                pattern: ^[0-9a-fA-F-]{36}$
+                description: OrgRef is the reference to the name of the org cr that
+                  the cluster belongs to.
                 type: string
               region:
                 description: Region is mandatory for managed clouds.

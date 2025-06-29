@@ -6,8 +6,7 @@ import (
 
 // ProjectSpec defines the desired state of Project.
 type ProjectSpec struct {
-	// OrgRef is the reference to the name of the organization this project belongs to
-	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F-]{36}$`
+	// OrgRef is the reference to the name of the org cr that the project belongs to.
 	// +kubebuilder:validation:Required
 	OrgRef string `json:"orgRef"`
 

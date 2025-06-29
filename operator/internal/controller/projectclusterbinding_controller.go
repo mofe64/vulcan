@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -18,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	platformv1alpha1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
 	"github.com/mofe64/vulkan/operator/internal/model"
 	"github.com/mofe64/vulkan/operator/internal/utils"
@@ -29,7 +29,7 @@ type ProjectClusterBindingReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	TargetFactory utils.TargetClientFactory // helper to create a client for a Cluster CRD
-	DB            *pgxpool.Pool
+	DB            *sql.DB
 }
 
 // +kubebuilder:rbac:groups=platform.platform.io,resources=projectclusterbindings,verbs=get;list;watch;create;update;patch;delete
@@ -58,7 +58,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 				Reason:  "ProjectLookupFailed",
 				Message: err.Error(),
 			})
-			_ = r.Status().Update(ctx, &binding)
+			err = r.Status().Update(ctx, &binding)
+			if err != nil {
+				log.Error(err, "Failed to update status", "binding", binding.Name)
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{RequeueAfter: time.Minute * 5}, err
 		} else {
 			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
@@ -67,7 +71,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 				Reason:  "ProjectLookupError",
 				Message: err.Error(),
 			})
-			_ = r.Status().Update(ctx, &binding)
+			err = r.Status().Update(ctx, &binding)
+			if err != nil {
+				log.Error(err, "Failed to update status", "binding", binding.Name)
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{}, err
 		}
 
@@ -84,7 +92,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 				Reason:  "ClusterLookupFailed",
 				Message: err.Error(),
 			})
-			_ = r.Status().Update(ctx, &binding)
+			err = r.Status().Update(ctx, &binding)
+			if err != nil {
+				log.Error(err, "Failed to update status", "binding", binding.Name)
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{RequeueAfter: time.Minute * 5}, err
 		} else {
 			apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
@@ -93,7 +105,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 				Reason:  "ClusterLookupError",
 				Message: err.Error(),
 			})
-			_ = r.Status().Update(ctx, &binding)
+			err = r.Status().Update(ctx, &binding)
+			if err != nil {
+				log.Error(err, "Failed to update status", "binding", binding.Name)
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{}, err
 		}
 	}
@@ -108,7 +124,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 				Reason:  "ClusterTargetGenError",
 				Message: err.Error(),
 			})
-			_ = r.Status().Update(ctx, &binding)
+			err = r.Status().Update(ctx, &binding)
+			if err != nil {
+				log.Error(err, "Failed to update status", "binding", binding.Name)
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -119,10 +139,10 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 	if proj.Spec.ProjectNamespace != "" {
 		ns = proj.Spec.ProjectNamespace
 	} else {
-		ns = fmt.Sprintf("proj-%s-%s-%s", proj.Spec.OrgRef, proj.Name, proj.Spec.ProjectID)
+		ns = utils.ShortName("proj-ns", fmt.Sprintf("%s-%s", proj.Spec.OrgRef, proj.Name))
 	}
 
-	if err := utils.EnsureNamespace(ctx, k8sClient, ns, proj.Spec.DisplayName); err != nil {
+	if err := utils.EnsureNamespace(ctx, k8sClient, ns, "ns_for_"+proj.Spec.DisplayName); err != nil {
 		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
 			Type:    platformv1alpha1.Error,
 			Status:  metav1.ConditionTrue,
@@ -139,11 +159,10 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
-	if err := utils.AddLabelsToNamespace(ctx, r.Client, ns, map[string]string{
-		"vulkan.io/project":     proj.Name,
-		"vulkan.io/projectID":   proj.Spec.ProjectID,
-		"vulkan.io/displayName": proj.Spec.DisplayName,
-		"vulkan.io/org":         proj.Spec.OrgRef,
+	if err := utils.AddLabelsToNamespace(ctx, k8sClient, ns, map[string]string{
+		"vulkan.io/project":   proj.Name,
+		"vulkan.io/projectID": proj.Spec.ProjectID,
+		"vulkan.io/org":       proj.Spec.OrgRef,
 	}); err != nil {
 		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
 			Type:    platformv1alpha1.Error,
@@ -157,7 +176,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 			Reason:  "NamespaceLabelingError",
 			Message: err.Error(),
 		})
-		_ = r.Status().Update(ctx, &binding)
+		err = r.Status().Update(ctx, &binding)
+		if err != nil {
+			log.Error(err, "Failed to update status", "binding", binding.Name)
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -180,7 +203,7 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 		},
 	}
 
-	if err := r.Client.Create(ctx, quota); err != nil {
+	if err := k8sClient.Create(ctx, quota); err != nil {
 		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
 			Type:    platformv1alpha1.Error,
 			Status:  metav1.ConditionTrue,
@@ -193,14 +216,18 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 			Reason:  "QuotaCreationError",
 			Message: err.Error(),
 		})
-		_ = r.Status().Update(ctx, &binding)
+		err = r.Status().Update(ctx, &binding)
+		if err != nil {
+			log.Error(err, "Failed to update status", "binding", binding.Name)
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, err
 	}
 
 	// create network policy
 	networkPolicy := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default-deny",
+			Name:      "vulkan-default-deny",
 			Namespace: ns,
 		},
 		Spec: networkingv1.NetworkPolicySpec{
@@ -212,7 +239,7 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 		},
 	}
 
-	if err := r.Client.Create(ctx, networkPolicy); err != nil {
+	if err := k8sClient.Create(ctx, networkPolicy); err != nil {
 		apimeta.SetStatusCondition(&binding.Status.Conditions, metav1.Condition{
 			Type:    platformv1alpha1.Error,
 			Status:  metav1.ConditionTrue,
@@ -225,12 +252,16 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 			Reason:  "NetworkPolicyCreationError",
 			Message: err.Error(),
 		})
-		_ = r.Status().Update(ctx, &binding)
+		err = r.Status().Update(ctx, &binding)
+		if err != nil {
+			log.Error(err, "Failed to update status", "binding", binding.Name)
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, err
 	}
 
 	// Fetch project members for this project and assign them roles in the target cluster based on their roles in the project
-	rows, err := r.DB.Query(ctx, `
+	rows, err := r.DB.QueryContext(ctx, `
 		SELECT pm.project_id, pm.user_id, pm.role, u.email 
 		FROM project_members pm 
 		JOIN users u ON pm.user_id = u.id 
@@ -243,7 +274,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 			Reason:  "ProjectMemberLookupError",
 			Message: err.Error(),
 		})
-		_ = r.Status().Update(ctx, &binding)
+		err = r.Status().Update(ctx, &binding)
+		if err != nil {
+			log.Error(err, "Failed to update status", "binding", binding.Name)
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, err
 	}
 	defer rows.Close()
@@ -282,7 +317,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 				Reason:  "RoleBindingCreationError",
 				Message: fmt.Sprintf("Failed to create role binding for user %s: %v", member.Email, err),
 			})
-			_ = r.Status().Update(ctx, &binding)
+			err = r.Status().Update(ctx, &binding)
+			if err != nil {
+				log.Error(err, "Failed to update status", "binding", binding.Name)
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{}, err
 		}
 		log.Info("Created role binding", "user", member.Email, "role", k8sRole, "namespace", ns)
@@ -295,7 +334,11 @@ func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctr
 		Reason:  "BindingReady",
 		Message: fmt.Sprintf("Successfully created role bindings for %d project members in namespace %s", len(projectMembers), ns),
 	})
-	_ = r.Status().Update(ctx, &binding)
+	err = r.Status().Update(ctx, &binding)
+	if err != nil {
+		log.Error(err, "Failed to update status", "binding", binding.Name)
+		return ctrl.Result{}, err
+	}
 
 	log.Info("Binding ready", "binding", binding.Name)
 	return ctrl.Result{}, nil

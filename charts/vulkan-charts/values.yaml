@@ -4,8 +4,8 @@ global:
   email: ogunbiyioladapo33@gmail.com
   ingress:
     className: nginx
-  imageRegistry: ghcr.io/mofe6/vulkan         # where Tekton pushes images
-  replicaCount: 1                             # small dev default
+  imageRegistry: ghcr.io/mofe6/vulkan         
+  replicaCount: 1                             
 
 # autoscaling config
 autoscaling:
@@ -160,15 +160,14 @@ argocd:
           name: vulkan-gitops
     ingress:
       enabled: true
-      # Use the ingress class name from global settings
-      className: {{ .Values.global.ingress.className | quote }}
+      className: nginx
       hosts:
         # Use global domain to construct the Argo CD URL
-        - argocd.{{ .Values.global.domain | quote }}
+        - argocd.vulkan.strawhatengineer.com
       # Cert-manager will use this secret to store the TLS certificate
       tls:
         - hosts:
-            - argocd.{{ .Values.global.domain | quote }}
+            - argocd.vulkan.strawhatengineer.com
           secretName: argocd-server-tls # a unique secret name for Argo CD TLS
 
   applications:

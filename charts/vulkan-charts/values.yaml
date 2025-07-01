@@ -1,0 +1,213 @@
+global:
+  imagePullPolicy: IfNotPresent
+  domain: vulkan.strawhatengineer.com
+  email: ogunbiyioladapo33@gmail.com
+  ingress:
+    className: nginx
+  imageRegistry: ghcr.io/mofe6/vulkan         # where Tekton pushes images
+  replicaCount: 1                             # small dev default
+
+# autoscaling config
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# vulkan service account
+serviceAccount:
+  create: true
+  name: vulkan-service-account
+  annotations: {}
+  automount: true
+
+# vulkan ui
+ui:
+  replicas: 2
+  image:
+    repository: ghcr.io/mofe6/vulkan-ui
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  apiBase: "https://api.vulkan.strawhatengineer.com"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  ingress:
+    enabled: true
+    host: vulkan.strawhatengineer.com
+    tlsSecret: vulkan-tls      # cert-manager will fill this
+    annotations:  # extra NGINX tweaks (optional)             
+      nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+
+# vulkan api
+api:
+  image:
+    repository: ghcr.io/mofe6/vulkan-api
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  replicas: 3
+  service:
+    type: ClusterIP
+    port: 8080
+  env:
+    OIDCJWKSURL: "https://dex.{{ .Values.global.domain }}/dex/keys"
+    K8S_IN_CLUSTER: "true"
+    DATABASE_URL: "postgres://paas:******@pgbouncer:6432/paas?sslmode=require" # replace with your actual database URL
+    OPA_URL: "http://127.0.0.1:8181"
+    OPA_POLICY_PATH: "/data/api/authz/allow"
+    NATS_URL: "nats://nats:4222"
+    clientSecret: "a-very-strong-and-unique-secret-for-vulkan-api" # Replace with k8s secret impl
+  ingress:
+    enabled: true
+    host: api.vulkan.strawhatengineer.com
+    tlsSecret: vulkan-api-tls  # cert-manager will fill this
+    annotations:               # extra NGINX tweaks
+      nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+
+# vulkan cert-manager
+certmanager:          # alias in Chart.yaml
+  installCRDs: true
+
+# vulkan nginx
+nginx:
+  controller:
+    publishService:
+      enabled: true          # makes cloud LB get an external IP
+    extraArgs:
+      default-ssl-certificate: "vulkan/vulkan-tls"
+    service:
+      annotations:           # example for AWS ELB idle timeout
+        service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
+
+
+
+
+# ==================== Cross-chart overrides ====================
+nats:                               # alias defined in Chart.yaml
+  nats:
+    jetstream:
+      enabled: true                 # turn on persistence & streams
+    auth:
+      enabled: false                # disable auth for simplicity
+    resources:
+      limits:
+        memory: 256Mi
+  cluster:
+    enabled: true
+    replicas: 1
+
+dex:
+  enabled: true
+  apiClientSecret: "CHANGE_ME_STRONG_STRING" # Replace with k8s secret impl
+
+  # config provided here will be copied directly into dex.yaml in the dex pod.
+  config: |
+    issuer: https://dex.{{ .Values.global.domain }}/dex
+    storage:
+      type: kubernetes
+      config:
+        inCluster: true
+
+    staticClients:
+      - id: vulkan-ui
+        name: Vulkan UI
+        public: true
+        redirectURIs:
+          - https://vulkan.strawhatengineer.com/callback
+          
+
+      - id: vulkan-api
+        name: Vulkan API
+        secret: {{ .Values.dex.apiClientSecret | quote }}
+        redirectURIs:
+        - https://vulkan.strawhatengineer.com/callback
+      
+     
+    connectors:
+    - type: github
+      id: github
+      name: GitHub
+      config:
+        # These values should be provided securely, e.g., through Helm values sourced from Kubernetes Secrets.
+        clientID: {{ .Values.githubConnector.clientID | quote }}
+        clientSecret: {{ .Values.githubConnector.clientSecret | quote }}
+        redirectURI: https://dex.{{ .Values.global.domain }}/dex/callback # Ensure this path is correct and matches GitHub OAuth app settings.
+
+# It's highly recommended to manage this secret using Kubernetes secrets.
+# For example, if using a plain value (less secure for production):
+githubConnector:
+  clientID: "your_github_oauth_app_client_id"
+  clientSecret: "your_github_oauth_app_client_secret"
+
+
+# Tekton
+tekton:
+
+# Argo CD – Git-Ops engine
+argocd:
+  # Enable and configure the Argo CD API server ingress to expose the UI
+  server:
+    config:
+      repositories: |
+        - url: https://github.com/mofe64/vulkan-gitops.git
+          type: git
+          name: vulkan-gitops
+    ingress:
+      enabled: true
+      # Use the ingress class name from global settings
+      className: {{ .Values.global.ingress.className | quote }}
+      hosts:
+        # Use global domain to construct the Argo CD URL
+        - argocd.{{ .Values.global.domain | quote }}
+      # Cert-manager will use this secret to store the TLS certificate
+      tls:
+        - hosts:
+            - argocd.{{ .Values.global.domain | quote }}
+          secretName: argocd-server-tls # a unique secret name for Argo CD TLS
+
+  applications:
+    - name: vulkan-applications
+      namespace: argocd
+      project: default
+      source:
+        repoURL: https://github.com/mofe64/vulkan-gitops.git
+        targetRevision: HEAD
+        path: apps  # This folder will contain all your application manifests
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: default  # Default target namespace (apps can override this)
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+
+
+# Crossplane – Cloud Resource Management
+# crossplane:
+#   # Core Crossplane controller
+#   core:
+#     enabled: true
+#     resources:
+#       requests:
+#         cpu: "50m"
+#         memory: "128Mi"
+#       limits:
+#         cpu: "250m"
+#         memory: "256Mi"
+  
+#   # Providers (add as needed)
+#   providers:
+#     # Example: AWS provider
+#     # aws:
+#     #   enabled: false
+#     #   version: "v0.37.1"
+#     #   config:
+#     #     aws_access_key_id: "YOUR_AWS_ACCESS_KEY"
+#     #     aws_secret_access_key: "YOUR_AWS_SECRET_KEY"
+#     #     aws_region: "us-west-2"

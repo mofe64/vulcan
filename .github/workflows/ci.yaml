@@ -68,8 +68,9 @@ jobs:
           file: ./api/Dockerfile # Path to the API's Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:${{ github.sha }} # Tag with full commit SHA
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:latest # Tag as latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:${{ github.sha }} A
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:latest
+          # Tag as latest and commit SHA
           # build-args are not strictly needed here as ENV in Dockerfile handles GOWORK
 
       - name: Build and push Operator image

@@ -1,0 +1,124 @@
+# templates/tekton/tasks/kaniko-build-task.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: kaniko-build-task
+spec:
+  description: |
+    Build and push a container image using Kaniko, which doesn't require
+    a Docker daemon and can run in an unprivileged container.
+  params:
+    - name: image-name
+      description: The full name of the image to build (including tag)
+      type: string
+    - name: dockerfile-path
+      description: Path to the Dockerfile relative to the context
+      type: string
+      default: "./Dockerfile"
+    - name: context-dir
+      description: The build context directory, relative to the source subpath
+      type: string
+      default: "."
+    - name: source-subpath
+      description: Path to the source code within the source workspace
+      type: string
+      default: "source"
+    - name: build-args
+      description: Build arguments (comma-separated KEY=VALUE pairs)
+      type: string
+      default: ""
+    - name: extra-args
+      description: Extra arguments to pass to Kaniko
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+      description: Workspace containing the source code
+    - name: docker-config
+      description: Workspace containing Docker registry credentials
+  results:
+    - name: image-digest
+      description: Digest of the image just built
+  steps:
+    - name: prepare-context
+      image: busybox:1.36.0
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # Prepare the build context path
+        SOURCE_PATH="$(workspaces.source.path)/$(params.source-subpath)"
+        CONTEXT_PATH="${SOURCE_PATH}/$(params.context-dir)"
+        DOCKERFILE_PATH="${CONTEXT_PATH}/$(params.dockerfile-path)"
+
+        # Verify the Dockerfile exists
+        if [ ! -f "${DOCKERFILE_PATH}" ]; then
+          # If the dockerfile-path doesn't include the filename directly
+          if [ -f "${CONTEXT_PATH}/Dockerfile" ]; then
+            DOCKERFILE_PATH="${CONTEXT_PATH}/Dockerfile"
+          else
+            echo "Error: Dockerfile not found at ${DOCKERFILE_PATH}"
+            exit 1
+          fi
+        fi
+
+        echo "Build context: ${CONTEXT_PATH}"
+        echo "Dockerfile: ${DOCKERFILE_PATH}"
+
+        # Create a file with the path information for the next step
+        echo "${CONTEXT_PATH}" > "$(workspaces.source.path)/context-path"
+        echo "${DOCKERFILE_PATH}" > "$(workspaces.source.path)/dockerfile-path"
+
+        # Parse build arguments
+        if [ -n "$(params.build-args)" ]; then
+          BUILD_ARGS_FILE="$(workspaces.source.path)/build-args"
+          touch "${BUILD_ARGS_FILE}"
+          
+          # Split by comma and create --build-arg entries
+          IFS=',' read -ra ARGS <<< "$(params.build-args)"
+          for ARG in "${ARGS[@]}"; do
+            echo "--build-arg=${ARG}" >> "${BUILD_ARGS_FILE}"
+          done
+        fi
+
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:v1.9.1
+      env:
+        - name: DOCKER_CONFIG
+          value: $(workspaces.docker-config.path)
+      script: |
+        #!/busybox/sh
+        set -eu
+
+        # Get the paths from the previous step
+        CONTEXT_PATH=$(cat "$(workspaces.source.path)/context-path")
+        DOCKERFILE_PATH=$(cat "$(workspaces.source.path)/dockerfile-path")
+
+        # Prepare build arguments
+        BUILD_ARGS=""
+        if [ -f "$(workspaces.source.path)/build-args" ]; then
+          while read -r ARG; do
+            BUILD_ARGS="${BUILD_ARGS} ${ARG}"
+          done < "$(workspaces.source.path)/build-args"
+        fi
+
+        # Prepare extra arguments
+        EXTRA_ARGS="$(params.extra-args)"
+
+        # Build and push with Kaniko
+        echo "Building image $(params.image-name) from ${DOCKERFILE_PATH} with context ${CONTEXT_PATH}..."
+
+        /kaniko/executor \
+          --dockerfile="${DOCKERFILE_PATH}" \
+          --context="${CONTEXT_PATH}" \
+          --destination="$(params.image-name)" \
+          --cleanup \
+          ${BUILD_ARGS} \
+          ${EXTRA_ARGS}
+
+        # Extract the image digest (if possible)
+        DIGEST=$(grep "digest: sha256:" /kaniko/.docker/config.json || echo "unknown")
+        if [ "${DIGEST}" != "unknown" ]; then
+          DIGEST=$(echo "${DIGEST}" | sed 's/.*digest: sha256:/sha256:/g')
+        fi
+        echo -n "${DIGEST}" > "$(results.image-digest.path)"

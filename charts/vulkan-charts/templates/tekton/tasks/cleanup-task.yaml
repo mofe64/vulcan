@@ -18,7 +18,9 @@ spec:
 
         # Remove all temporary files and directories
         find "$(workspaces.workspace.path)" -type d -name "cache" -exec rm -rf {} +
-        find "$(workspaces.workspace.path)" -type d -name ".env" -exec rm -rf {} +
+        find "$(workspaces.workspace.path)" -type f -name "context-path" -delete
+        find "$(workspaces.workspace.path)" -type f -name "dockerfile-path" -delete
+        find "$(workspaces.workspace.path)" -type f -name "build-args" -delete
 
         # Remove any sensitive data
         find "$(workspaces.workspace.path)" -type f -name ".git-credentials" -delete

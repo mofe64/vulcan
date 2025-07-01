@@ -5,11 +5,44 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - platform.platform.io
   resources:
   - applications
   - orgs
-  - projectclusterbindings
   - projects
   verbs:
   - create
@@ -24,7 +57,6 @@ rules:
   resources:
   - applications/finalizers
   - orgs/finalizers
-  - projectclusterbindings/finalizers
   - projects/finalizers
   verbs:
   - update
@@ -33,9 +65,24 @@ rules:
   resources:
   - applications/status
   - orgs/status
-  - projectclusterbindings/status
   - projects/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - tekton.dev
+  resources:
+  - clustertasks
+  - pipelineruns
+  - pipelines
+  - taskruns
+  - tasks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

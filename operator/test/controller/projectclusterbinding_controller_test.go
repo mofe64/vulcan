@@ -431,6 +431,9 @@ var _ = Describe("ProjectClusterBinding Controller", func() {
 			}).WithTimeout(time.Second * 10).WithPolling(time.Millisecond * 200).Should(Succeed())
 		})
 
+		//Todo: error path tests
+		//Todo: pcb deletion tests
+
 	})
 
 })

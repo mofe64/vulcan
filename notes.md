@@ -222,3 +222,21 @@ if err := r.Status().Update(ctx, &proj); err != nil {
 ### Lesson Learned
 
 When performing multiple updates on the same object in a single reconciliation cycle, especially with finalizers and deletion timestamps, be aware that object metadata (including UID) may change between updates. Avoid unnecessary status updates during deletion phases.
+
+### Tekton
+
+Add the Tekton Helm repository (once per workstation/CI runner)
+
+`helm repo add cdf https://cdfoundation.github.io/tekton-helm-chart`
+`helm search repo tekton` -> to find latest version
+`helm repo update`
+The repo exposes the chart tekton-pipeline; at the moment the latest chart version in that repo is 1.1.0
+github.com
+
+Declare Tekton as a dependency in Chart.yaml
+
+```
+name: tekton-pipeline # chart name in the repo
+  version: "1.1.0" # pin the version you saw with `helm search`
+  repository: "https://cdfoundation.github.io/tekton-helm-chart" # (optional) let users switch Tekton on/off from values.yaml
+```

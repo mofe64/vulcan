@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policy-bundle
+  labels:
+    {{- include "vulkan.labels" . | nindent 4 }}
+data:
+  # Basic authorization policy
+  authz.rego: |
+    package api.authz
+
+    default allow = false
+
+    # Allow admin users
+    allow {
+      input.user.role == "admin"
+    }
+
+    # Allow users in their own organizations
+    allow {
+      input.user.org == input.resource.org
+      input.action == "read"
+    }
+
+    # Allow project members to access their projects
+    allow {
+      input.user.projects[_] == input.resource.project
+      input.action == "read"
+    } 

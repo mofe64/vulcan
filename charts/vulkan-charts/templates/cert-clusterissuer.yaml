@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod # keep or rename; must match issuerRef later
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory # ✅ keep (production)
+    # 👉 email for Let’s Encrypt expiry notices.
+    email: {{ .Values.global.email }}
+    privateKeySecretRef:
+      # 👉 Any name you like; cert-manager creates this Secret automatically
+      #    to store the ACME account private key.
+      name: acme-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: {{ .Values.global.ingress.className | default "nginx" }} # Must match .spec.ingressClassName on your Ingress

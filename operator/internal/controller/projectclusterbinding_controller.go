@@ -35,7 +35,7 @@ type ProjectClusterBindingReconciler struct {
 // +kubebuilder:rbac:groups=platform.platform.io,resources=projectclusterbindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=platform.platform.io,resources=projectclusterbindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.platform.io,resources=projectclusterbindings/finalizers,verbs=update
-
+// todo: deletion and finalizer logic
 func (r *ProjectClusterBindingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling ProjectClusterBinding", "name", req.Name, "namespace", req.Namespace)

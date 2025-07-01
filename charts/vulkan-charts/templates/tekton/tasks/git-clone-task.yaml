@@ -1,0 +1,55 @@
+# templates/tekton/tasks/git-clone-task.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: git-clone-task
+spec:
+  description: |
+    Clone a git repository to a workspace directory.
+  params:
+    - name: repo-url
+      description: The Git repository URL to clone from
+      type: string
+    - name: revision
+      description: The Git revision (branch, tag, or commit SHA) to clone
+      type: string
+      default: "main"
+  workspaces:
+    - name: output
+      description: The workspace where the git repository will be cloned to
+    - name: git-credentials
+      description: The workspace containing git credentials (optional)
+      optional: true
+  results:
+    - name: commit
+      description: The precise commit SHA that was fetched by this Task
+    - name: url
+      description: The URL that was fetched by this Task
+  steps:
+    - name: clone
+      image: alpine/git:v2.36.3
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # Setup git credentials if provided
+        if [ -f "$(workspaces.git-credentials.path)/.git-credentials" ]; then
+          cp "$(workspaces.git-credentials.path)/.git-credentials" /tmp/.git-credentials
+          git config --global credential.helper "store --file=/tmp/.git-credentials"
+        fi
+
+        # Create target directory
+        OUTPUT_DIR="$(workspaces.output.path)/source"
+        mkdir -p "${OUTPUT_DIR}"
+
+        # Clone the repository
+        cd "${OUTPUT_DIR}"
+        git init
+        git remote add origin "$(params.repo-url)"
+        git fetch --depth 1 origin "$(params.revision)"
+        git checkout FETCH_HEAD
+
+        # Get commit info for results
+        COMMIT=$(git rev-parse HEAD)
+        echo -n "${COMMIT}" > "$(results.commit.path)"
+        echo -n "$(params.repo-url)" > "$(results.url.path)"

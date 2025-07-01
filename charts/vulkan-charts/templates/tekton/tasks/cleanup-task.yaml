@@ -1,0 +1,26 @@
+# templates/tekton/tasks/cleanup-task.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: cleanup-task
+spec:
+  description: |
+    Clean up any temporary resources created during the pipeline run.
+  workspaces:
+    - name: workspace
+      description: The workspace to clean up
+  steps:
+    - name: cleanup
+      image: busybox:1.36.0
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # Remove all temporary files and directories
+        find "$(workspaces.workspace.path)" -type d -name "cache" -exec rm -rf {} +
+        find "$(workspaces.workspace.path)" -type d -name ".env" -exec rm -rf {} +
+
+        # Remove any sensitive data
+        find "$(workspaces.workspace.path)" -type f -name ".git-credentials" -delete
+
+        echo "Cleanup completed successfully."

@@ -1,0 +1,42 @@
+# templates/tekton/tasks/get-git-revision.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: get-git-revision
+spec:
+  description: |
+    Extract the current git revision from a cloned repository.
+  params:
+    - name: source-path
+      description: Path to the git repository within the workspace
+      type: string
+  workspaces:
+    - name: source
+      description: Workspace containing the git repository
+  results:
+    - name: commit
+      description: The current commit SHA
+    - name: short-commit
+      description: The shortened commit SHA
+    - name: branch
+      description: The current branch name
+  steps:
+    - name: get-revision
+      image: alpine/git:v2.36.3
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        cd "$(params.source-path)"
+
+        # Get full commit SHA
+        COMMIT=$(git rev-parse HEAD)
+        echo -n "${COMMIT}" > "$(results.commit.path)"
+
+        # Get short commit SHA
+        SHORT_COMMIT=$(git rev-parse --short HEAD)
+        echo -n "${SHORT_COMMIT}" > "$(results.short-commit.path)"
+
+        # Try to get branch name, defaulting to HEAD if detached
+        BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "HEAD")
+        echo -n "${BRANCH}" > "$(results.branch.path)"

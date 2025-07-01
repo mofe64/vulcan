@@ -1,0 +1,76 @@
+# templates/tekton/pipelines/app-pipeline.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: app-build-dockerfile
+spec:
+  params:
+    - name: repo-url
+      type: string
+    - name: branch
+      type: string
+    - name: image-name
+      type: string
+    - name: dockerfile-path
+      type: string
+      default: "./Dockerfile"
+    - name: gitops-repo-url
+      type: string
+    - name: gitops-app-path
+      type: string
+    - name: app-name
+      type: string
+  workspaces:
+    - name: shared-workspace # This will be mounted into all tasks that need it
+    - name: docker-config
+    - name: git-credentials
+  tasks:
+    - name: fetch-source
+      taskRef:
+        name: git-clone-task
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.branch)
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+        - name: git-credentials
+          workspace: git-credentials
+
+    - name: build-and-push
+      taskRef:
+        name: build-and-push-image-task
+      runAfter: ["fetch-source"] # This task runs after fetch-source completes
+      params:
+        - name: image-name
+          value: $(params.image-name)
+        - name: dockerfile-path
+          value: $(params.dockerfile-path)
+        - name: context-path
+          value: "source" # The git-clone task places code in a 'source' folder within the workspace
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: docker-config
+          workspace: docker-config
+
+    - name: update-gitops
+      taskRef:
+        name: update-gitops-repo-task
+      runAfter: ["build-and-push"] # This task runs after build-and-push completes
+      params:
+        - name: gitops-repo-url
+          value: $(params.gitops-repo-url)
+        - name: gitops-app-path
+          value: $(params.gitops-app-path)
+        - name: app-image
+          value: $(params.image-name) # The image we just built
+        - name: app-name
+          value: $(params.app-name) # Pass the application name for commit message
+      workspaces:
+        - name: gitops-output
+          workspace: shared-workspace # Re-use the workspace for GitOps repo cloning
+        - name: git-credentials
+          workspace: git-credentials

@@ -1,0 +1,98 @@
+# templates/tekton/tasks/buildpack-task.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: buildpack-task
+spec:
+  description: |
+    Build source code without a Dockerfile using Cloud Native Buildpacks.
+  params:
+    - name: image-name
+      description: The full name of the image to build (including tag)
+      type: string
+    - name: builder-image
+      description: The buildpack builder image to use
+      type: string
+      default: "paketobuildpacks/builder:base"
+    - name: source-subpath
+      description: Path to the source code within the source workspace
+      type: string
+      default: "source"
+    - name: env-vars
+      description: Environment variables to set during build (comma-separated KEY=VALUE pairs)
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+      description: Workspace containing the source code
+    - name: docker-config
+      description: Workspace containing Docker registry credentials
+  results:
+    - name: image-digest
+      description: Digest of the image just built
+  steps:
+    - name: prepare
+      image: busybox:1.36.0
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # Create cache directory for buildpacks
+        mkdir -p "$(workspaces.source.path)/cache"
+
+        # Parse env-vars parameter into individual files for pack
+        if [ -n "$(params.env-vars)" ]; then
+          ENV_DIR="$(workspaces.source.path)/.env"
+          mkdir -p "${ENV_DIR}"
+          
+          # Split the env-vars string by comma and create files
+          IFS=',' read -ra VARS <<< "$(params.env-vars)"
+          for VAR in "${VARS[@]}"; do
+            KEY=$(echo "${VAR}" | cut -d= -f1)
+            VALUE=$(echo "${VAR}" | cut -d= -f2-)
+            echo -n "${VALUE}" > "${ENV_DIR}/${KEY}"
+          done
+        fi
+
+    - name: build-and-push
+      image: docker.io/paketobuildpacks/pack:0.28.0
+      securityContext:
+        runAsUser: 0
+      env:
+        - name: DOCKER_CONFIG
+          value: $(workspaces.docker-config.path)
+      script: |
+        #!/usr/bin/env bash
+        set -eu
+
+        # Path to source code
+        SOURCE_PATH="$(workspaces.source.path)/$(params.source-subpath)"
+
+        # Path to cache directory
+        CACHE_PATH="$(workspaces.source.path)/cache"
+
+        # Environment variables directory
+        ENV_DIR="$(workspaces.source.path)/.env"
+        ENV_ARGS=""
+        if [ -d "${ENV_DIR}" ]; then
+          for ENV_FILE in ${ENV_DIR}/*; do
+            KEY=$(basename "${ENV_FILE}")
+            ENV_ARGS="${ENV_ARGS} --env ${KEY}"
+          done
+        fi
+
+        # Build the image with buildpacks
+        echo "Building image $(params.image-name) from ${SOURCE_PATH} using $(params.builder-image)..."
+
+        pack build "$(params.image-name)" \
+          --path "${SOURCE_PATH}" \
+          --builder "$(params.builder-image)" \
+          --cache-dir "${CACHE_PATH}" \
+          --trust-builder \
+          ${ENV_ARGS} \
+          --publish
+
+        # Get the image digest
+        IMAGE_DIGEST=$(crane digest "$(params.image-name)" 2>/dev/null || echo "unknown")
+        echo -n "${IMAGE_DIGEST}" > "$(results.image-digest.path)"
+        echo "Image built and pushed with digest: ${IMAGE_DIGEST}"

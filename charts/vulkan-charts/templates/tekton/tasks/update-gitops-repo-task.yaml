@@ -1,0 +1,168 @@
+# templates/tekton/tasks/update-gitops-repo-task.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: update-gitops-repo-task
+spec:
+  description: |
+    Clone the GitOps repository, update the application's deployment manifests with
+    the new image, and push the changes back to the repository.
+  params:
+    - name: gitops-repo-url
+      description: URL of the GitOps repository
+      type: string
+    - name: gitops-app-path
+      description: Path within the GitOps repository for this application's manifests
+      type: string
+    - name: app-image
+      description: The new application image to set
+      type: string
+    - name: app-name
+      description: Name of the application (used for file naming)
+      type: string
+    - name: source-revision
+      description: The source code revision that was built
+      type: string
+  workspaces:
+    - name: gitops-output
+      description: Workspace to clone the GitOps repository into
+    - name: git-credentials
+      description: Workspace containing Git credentials for pushing
+  steps:
+    - name: clone-gitops-repo
+      image: alpine/git:v2.36.3
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # Setup git credentials
+        if [ -f "$(workspaces.git-credentials.path)/.git-credentials" ]; then
+          cp "$(workspaces.git-credentials.path)/.git-credentials" /tmp/.git-credentials
+          git config --global credential.helper "store --file=/tmp/.git-credentials"
+        fi
+
+        # Configure git user
+        git config --global user.email "tekton@vulkan-platform.io"
+        git config --global user.name "Vulkan Platform CI"
+
+        # Clone the GitOps repository
+        CHECKOUT_PATH="$(workspaces.gitops-output.path)/gitops"
+        mkdir -p "${CHECKOUT_PATH}"
+        git clone "$(params.gitops-repo-url)" "${CHECKOUT_PATH}"
+
+    - name: update-manifests
+      image: bitnami/kubectl:latest
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        # Path to the application manifests in the GitOps repo
+        APP_PATH="$(workspaces.gitops-output.path)/gitops/$(params.gitops-app-path)"
+        mkdir -p "${APP_PATH}"
+
+        # Create or update the deployment manifest
+        if [ ! -f "${APP_PATH}/deployment.yaml" ]; then
+          # Create a new manifest if it doesn't exist
+          cat <<EOF > "${APP_PATH}/deployment.yaml"
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: $(params.app-name)
+          labels:
+            app: $(params.app-name)
+            app.kubernetes.io/part-of: vulkan-platform
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: $(params.app-name)
+          template:
+            metadata:
+              labels:
+                app: $(params.app-name)
+            spec:
+              containers:
+              - name: app
+                image: $(params.app-image)
+                ports:
+                - containerPort: 8080
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 128Mi
+                  limits:
+                    cpu: 500m
+                    memory: 512Mi
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: $(params.app-name)
+          labels:
+            app: $(params.app-name)
+            app.kubernetes.io/part-of: vulkan-platform
+        spec:
+          selector:
+            app: $(params.app-name)
+          ports:
+          - port: 80
+            targetPort: 8080
+        EOF
+        else
+          # Update the existing deployment with the new image
+          if command -v yq &>/dev/null; then
+            # Use yq if available (more reliable)
+            yq eval ".spec.template.spec.containers[0].image = \"$(params.app-image)\"" -i "${APP_PATH}/deployment.yaml"
+          else
+            # Fallback to sed (less reliable but more commonly available)
+            sed -i "s|image: .*|image: $(params.app-image)|g" "${APP_PATH}/deployment.yaml"
+          fi
+        fi
+
+        # Add annotations with metadata about this deployment
+        if command -v yq &>/dev/null; then
+          yq eval ".metadata.annotations.\"vulkan.io/git-revision\" = \"$(params.source-revision)\"" -i "${APP_PATH}/deployment.yaml"
+          yq eval ".metadata.annotations.\"vulkan.io/deployed-at\" = \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"" -i "${APP_PATH}/deployment.yaml"
+        fi
+
+    - name: commit-and-push
+      image: alpine/git:v2.36.3
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+
+        cd "$(workspaces.gitops-output.path)/gitops"
+
+        # Add changes
+        git add "$(params.gitops-app-path)/"
+
+        # Only commit if there are changes
+        if ! git diff-index --quiet HEAD; then
+          git commit -m "Update $(params.app-name) to image $(params.app-image)" \
+                    -m "Built from revision: $(params.source-revision)" \
+                    -m "Deployed by: Vulkan Platform"
+          
+          # Push, with retry for potential conflicts
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          PUSH_SUCCESS=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$PUSH_SUCCESS" != "true" ]; do
+            if git push; then
+              PUSH_SUCCESS=true
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "Push failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
+              git pull --rebase
+            fi
+          done
+          
+          if [ "$PUSH_SUCCESS" != "true" ]; then
+            echo "Failed to push changes after $MAX_RETRIES attempts."
+            exit 1
+          fi
+          
+          echo "Changes pushed successfully to GitOps repository."
+        else
+          echo "No changes to commit - deployment manifest already up to date."
+        fi

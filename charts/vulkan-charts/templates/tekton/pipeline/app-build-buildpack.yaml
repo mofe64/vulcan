@@ -1,0 +1,136 @@
+# templates/tekton/pipelines/app-build-buildpack.yaml
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: app-build-buildpack
+  labels:
+    app.kubernetes.io/part-of: vulkan-platform
+spec:
+  description: |
+    This pipeline clones a git repository, builds the source code using
+    Cloud Native Buildpacks (without requiring a Dockerfile), pushes the 
+    resulting image to a container registry, and updates a GitOps repository.
+  params:
+    # Source code parameters
+    - name: repo-url
+      description: URL of the Git repository containing the source code
+      type: string
+    - name: branch
+      description: Branch, tag, or commit SHA to build
+      type: string
+      default: "main"
+
+    # Build parameters
+    - name: image-name
+      description: Full name of the image to build (e.g., ghcr.io/org/app:tag)
+      type: string
+    - name: builder-image
+      description: Buildpack builder image to use
+      type: string
+      default: "paketobuildpacks/builder:base"
+    - name: env-vars
+      description: Environment variables to set during build (comma-separated KEY=VALUE pairs)
+      type: string
+      default: ""
+
+    # GitOps parameters
+    - name: gitops-repo-url
+      description: URL of the GitOps repository
+      type: string
+    - name: gitops-app-path
+      description: Path within the GitOps repository for this application's manifests
+      type: string
+    - name: app-name
+      description: Name of the application (used for manifest generation)
+      type: string
+
+  workspaces:
+    - name: source-workspace
+      description: Workspace for source code and build artifacts
+    - name: docker-config
+      description: Workspace containing Docker registry credentials
+    - name: git-credentials
+      description: Workspace containing Git credentials for pushing to GitOps repo
+
+  tasks:
+    # Task 1: Clone the application source code
+    - name: git-clone
+      taskRef:
+        name: git-clone-task
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.branch)
+      workspaces:
+        - name: output
+          workspace: source-workspace
+        - name: git-credentials
+          workspace: git-credentials
+
+    # Task 2: Detect language/framework and build with appropriate buildpacks
+    - name: buildpack-build-and-push
+      runAfter: ["git-clone"]
+      taskRef:
+        name: buildpack-task
+      params:
+        - name: image-name
+          value: $(params.image-name)
+        - name: builder-image
+          value: $(params.builder-image)
+        - name: source-subpath
+          value: "source"
+        - name: env-vars
+          value: $(params.env-vars)
+      workspaces:
+        - name: source
+          workspace: source-workspace
+        - name: docker-config
+          workspace: docker-config
+
+    # Task 3: Retrieve the commit SHA of the source code for tracking
+    - name: get-source-revision
+      runAfter: ["git-clone"]
+      taskRef:
+        name: get-git-revision
+      params:
+        - name: source-path
+          value: "$(workspaces.source-workspace.path)/source"
+      workspaces:
+        - name: source
+          workspace: source-workspace
+
+    # Task 4: Clone GitOps repository, update image, commit and push
+    - name: update-gitops-repo
+      runAfter: ["buildpack-build-and-push", "get-source-revision"]
+      taskRef:
+        name: update-gitops-repo-task
+      params:
+        - name: gitops-repo-url
+          value: $(params.gitops-repo-url)
+        - name: gitops-app-path
+          value: $(params.gitops-app-path)
+        - name: app-image
+          value: $(params.image-name)
+        - name: app-name
+          value: $(params.app-name)
+        - name: source-revision
+          value: $(tasks.get-source-revision.results.commit)
+      workspaces:
+        - name: gitops-output
+          workspace: source-workspace
+        - name: git-credentials
+          workspace: git-credentials
+
+  finally:
+    # Task to clean up any temporary resources
+    - name: cleanup
+      taskRef:
+        name: cleanup-task
+      when:
+        - input: "$(tasks.status)"
+          operator: in
+          values: ["Succeeded", "Failed", "Cancelled"]
+      workspaces:
+        - name: workspace
+          workspace: source-workspace

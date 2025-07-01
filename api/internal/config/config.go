@@ -11,7 +11,7 @@ import (
 type VulkanConfig struct {
 	DBURL                                  string        `env:"VULKAN_DATABASE_URL,required"`
 	OIDCJWKSURL                            string        `env:"OIDC_JWKS_URL,required"`
-	VulkanServerPort                       string        `env:"VULKAN_PORT"           default:"9021"`
+	VulkanServerPort                       string        `env:"VULKAN_PORT"           default:"8080"`
 	InCluster                              bool          `env:"K8S_IN_CLUSTER" default:"false"`
 	LOG_LEVEL                              string        `env:"LOG_LEVEL" default:"info"`
 	OpaUrl                                 string        `env:"OPA_URL"`

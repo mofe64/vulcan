@@ -4,14 +4,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// ApplicationSpec defines the desired state of Application.
 type ApplicationSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// Git repository to build & deploy.
 	// +kubebuilder:validation:Format=uri
 	RepoURL string `json:"repoURL"`
@@ -51,11 +44,7 @@ type HPAPolicy struct {
 	Max int32 `json:"maxReplicas"`
 }
 
-// ApplicationStatus defines the observed state of Application.
 type ApplicationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// Latest image pushed by Tekton build.
 	Image string `json:"image,omitempty"`
 	// git SHA deployed

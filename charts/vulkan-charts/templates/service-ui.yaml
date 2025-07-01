@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vulkan.uiServiceName" . }}
+  labels: {{- include "vulkan.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "vulkan.uiServiceName" . }}
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: http

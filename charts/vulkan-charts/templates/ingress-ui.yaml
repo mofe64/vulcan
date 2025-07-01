@@ -1,0 +1,28 @@
+{{- if .Values.ui.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "vulkan.uiIngressName" . }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ui.ingress.className | default "nginx" }}
+{{- with .Values.ui.ingress.annotations }}
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  ingressClassName: {{ .Values.global.ingress.className | default "nginx" }}
+  tls:
+    - hosts:
+        - {{ .Values.ui.ingress.host }}
+      secretName: {{ .Values.ui.ingress.tlsSecret }}
+  rules:
+    - host: {{ .Values.ui.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vulkan.uiServiceName" . }}
+                port:
+                  number: 80
+{{- end }}

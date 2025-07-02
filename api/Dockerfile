@@ -28,6 +28,7 @@ RUN go work sync
 # Build the API binary
 # CGO_ENABLED=0 is important for creating statically linked binaries on Alpine.
 # -a links all packages statically, -ldflags '-s -w' reduces binary size by removing debug info.
+# set the working directory to the directory containing the main function
 WORKDIR /app/api/cmd/api
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-s -w' -o /usr/local/bin/api .
 

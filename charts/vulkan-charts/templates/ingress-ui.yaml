@@ -4,11 +4,14 @@ kind: Ingress
 metadata:
   name: {{ include "vulkan.uiIngressName" . }}
   annotations:
-    kubernetes.io/ingress.class: {{ .Values.ui.ingress.className | default "nginx" }}
+    # kubernetes.io/ingress.class: {{ .Values.ui.ingress.className | default "nginx" }}
+    # Remove the deprecated kubernetes.io/ingress.class annotation.
+    # The ingressClassName field in spec is the correct way for v1 Ingress.
 {{- with .Values.ui.ingress.annotations }}
 {{ toYaml . | indent 4 }}
 {{- end }}
 spec:
+  # This is the correct field for specifying the Ingress Controller (e.g., "nginx").
   ingressClassName: {{ .Values.global.ingress.className | default "nginx" }}
   tls:
     - hosts:

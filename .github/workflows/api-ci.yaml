@@ -1,0 +1,66 @@
+name: API CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "api/**" # Trigger when any file in the 'api' directory changes
+      - "go.work" # Crucial: Trigger if the shared go.work file changes
+      - ".github/workflows/api-ci.yaml" # Trigger if this workflow file itself changes
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "api/**"
+      - "go.work"
+      - ".github/workflows/api-ci.yaml"
+
+# Define permissions required for the workflow
+permissions:
+  contents: read # Allows checking out the repository code
+  packages: write # Allows publishing Docker images to GitHub Container Registry
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_API: ${{ github.repository }}/api
+
+jobs:
+  build-test-publish-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.4"
+
+      - name: Go work sync (for go.mod replace directives)
+        # This step is crucial to ensure `go.work` properly resolves module paths
+        # before running tests or building locally.
+        run: go work sync
+        working-directory: .
+
+      - name: Run API tests
+        run: go test ./...
+        working-directory: api
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          # The build context is the repository root if 'Dockerfile' refers to 'go.work' or other root files
+          context: .
+          file: ./api/Dockerfile # Path to the API's Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_API }}:latest

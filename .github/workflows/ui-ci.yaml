@@ -1,0 +1,68 @@
+name: UI CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ui/**" # Trigger when any file in the 'ui' directory changes
+      - ".github/workflows/ui-ci.yaml" # Trigger if this workflow file itself changes
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "ui/**"
+      - ".github/workflows/ui-ci.yaml"
+
+# Define permissions required for the workflow
+permissions:
+  contents: read # Allows checking out the repository code
+  packages: write # Allows publishing Docker images to GitHub Container Registry
+
+env:
+  REGISTRY: ghcr.io
+  # Image name will be: ghcr.io/mofe64/vulcan/ui
+  IMAGE_NAME_UI: ${{ github.repository }}/ui
+
+jobs:
+  build-test-publish-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm" # Caches node modules.
+          cache-dependency-path: "ui/package-lock.json" # Adjust for yarn.lock or pnpm-lock.yaml
+      - name: Install UI dependencies
+        run: npm ci # 'npm ci' for clean installs in CI/CD
+        working-directory: ui
+
+      # TODO: Add UI tests
+      #   - name: Run UI tests
+      #     run: npm test
+      #     working-directory: ui
+
+      - name: Build UI for production
+        run: npm run build
+        working-directory: ui
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push UI image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ui # The build context is the 'ui' directory
+          file: ./ui/Dockerfile # Path to the UI's Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_UI }}:latest

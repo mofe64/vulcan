@@ -31,24 +31,31 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
-Common labels
+Common resource labels (general metadata, not for selector match unless explicitly added)
+This helper should NOT include app.kubernetes.io/name, instance, or component as those are for identity/matching.
 */}}
-{{- define "vulkan.labels" -}}
+{{- define "vulkan.commonResourceLabels" -}}
 helm.sh/chart: {{ include "vulkan.chart" . }}
-{{ include "vulkan.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+
+
 {{/*
-Selector labels
+Selector labels for a component.
+Usage: {{ include "vulkan.componentSelectorLabels" (dict "context" . "component" "ui") }}
 */}}
-{{- define "vulkan.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "vulkan.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- define "vulkan.componentSelectorLabels" -}}
+{{- $context := .context -}} 
+{{- $component := .component -}}
+app.kubernetes.io/name: {{ include "vulkan.name" $context }}
+app.kubernetes.io/instance: {{ $context.Release.Name }}
+app.kubernetes.io/component: {{ $component }}
 {{- end }}
+
 
 {{/*
 Create the name of the service account to use

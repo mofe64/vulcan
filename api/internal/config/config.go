@@ -19,8 +19,9 @@ type VulkanConfig struct {
 	OpaReqTIMEOUT                          time.Duration `env:"OPA_REQ_TIMEOUT" default:"300"`
 	NATS_URL                               string        `env:"NATS_URL"`
 	DEX_URL                                string        `env:"DEX_URL,required"`
-	OIDC_CLIENT_ID                         string        `env:"VULKAN_OIDC_CLIENT_ID,required"`
-	OIDC_CLIENT_SECRET                     string        `env:"VULKAN_OIDC_CLIENT_SECRET,required"`
+	OIDC_CLIENT_ID                         string        `env:"OIDC_CLIENT_ID,required"`
+	OIDC_CLIENT_SECRET                     string        `env:"OIDC_CLIENT_SECRET,required"`
+	OIDC_ISSUER                            string        `env:"OIDC_ISSUER,required"`
 	DefaultAttachedClusterConnectionSecret string        `env:"DEFAULT_ATTACHED_CLUSTER_CONNECTION_SECRET" default:"cp-current-kubeconfig"`
 }
 

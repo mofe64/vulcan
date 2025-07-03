@@ -22,8 +22,12 @@ spec:
 
     # Build parameters
     - name: image-name
-      description: Full name of the image to build (e.g., ghcr.io/org/app:tag)
+      description: Full name of the image to build (e.g., ghcr.io/org/app) - tag will be added internally by the pipeline
       type: string
+    - name: image-tag
+      description: The tag to apply to the built image (e.g., latest or commit SHA).
+      type: string
+      default: "latest"
     - name: builder-image
       description: Buildpack builder image to use
       type: string
@@ -75,7 +79,7 @@ spec:
         name: buildpack-task
       params:
         - name: image-name
-          value: $(params.image-name)
+          value: "$(params.image-name):$(params.image-tag)"
         - name: builder-image
           value: $(params.builder-image)
         - name: source-subpath
@@ -111,7 +115,9 @@ spec:
         - name: gitops-app-path
           value: $(params.gitops-app-path)
         - name: app-image
-          value: $(params.image-name)
+        # Concatenate base image name with the digest from the build task
+        # This results in ghcr.io/my-org/my-app@sha256:abcdef...
+          value: "$(params.image-name)@$(tasks.buildpack-build-and-push.results.image-digest)"
         - name: app-name
           value: $(params.app-name)
         - name: source-revision

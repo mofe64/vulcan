@@ -22,8 +22,12 @@ spec:
 
     # Build parameters
     - name: image-name
-      description: Full name of the image to build (e.g., ghcr.io/org/app:tag)
+      description: Full name of the image to build (e.g., ghcr.io/org/app) - tag will be added internally by the pipeline
       type: string
+    - name: image-tag
+      description: The tag to apply to the built image (e.g., latest or commit SHA).
+      type: string
+      default: "latest"
     - name: dockerfile-path
       description: Path to the Dockerfile relative to the repository root
       type: string
@@ -79,7 +83,7 @@ spec:
         name: kaniko-build-task
       params:
         - name: image-name
-          value: $(params.image-name)
+          value: "$(params.image-name):$(params.image-tag)"
         - name: dockerfile-path
           value: $(params.dockerfile-path)
         - name: context-dir
@@ -117,7 +121,9 @@ spec:
         - name: gitops-app-path
           value: $(params.gitops-app-path)
         - name: app-image
-          value: $(params.image-name)
+        # Concatenate base image name with the digest from the build task
+        # This results in ghcr.io/my-org/my-app@sha256:abcdef...
+          value: "$(params.image-name)@$(tasks.kaniko-build-and-push.results.image-digest)"
         - name: app-name
           value: $(params.app-name)
         - name: source-revision

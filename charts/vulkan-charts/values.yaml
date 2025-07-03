@@ -1,3 +1,6 @@
+nameOverride: vulkan
+fullnameOverride: false
+
 global:
   imagePullPolicy: IfNotPresent
   domain: vulkan.strawhatengineer.com
@@ -26,7 +29,7 @@ ui:
   replicas: 2
   image:
     repository: ghcr.io/mofe6/vulkan-ui
-    tag: "0.1.0"
+    tag: latest
     pullPolicy: IfNotPresent
   apiBase: "https://api.vulkan.strawhatengineer.com"
   resources:
@@ -43,6 +46,24 @@ ui:
     tlsSecret: vulkan-tls      # cert-manager will fill this
     annotations:  # extra NGINX tweaks (optional)             
       nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  # env is in list form
+  env:
+    - name: VITE_OIDC_ISSUER
+      value: "https://dex.{{ .Values.global.domain }}/dex"
+    - name: VITE_OIDC_CLIENT_ID
+      value: "vulkan-ui"
+    # the UI’s redirect URI must match what we put in staticClients
+    - name: VITE_OIDC_REDIRECT_URI
+      value: "https://vulkan.{{ .Values.global.domain }}/callback"
+    - name: VITE_VULKAN_API_BASE
+      value: "https://api.vulkan.strawhatengineer.com"
+    # auth url is ideally used to redirect the user to the auth page (login page)
+    # however newer oidc clients typically use the issuer url to perform a discovery process
+    # and get the auth url from the issuer url as well as other oidc endpoints.
+    # so i dont think this is needed, but i'll leave it here for now.
+    - name: VITE_VULKAN_OIDC_AUTH_URL
+      value: "https://dex.{{ .Values.global.domain }}/dex/auth"
 
 # vulkan api
 api:
@@ -55,23 +76,45 @@ api:
     type: ClusterIP
     port: 8080
   env:
-    OIDCJWKSURL: "https://dex.{{ .Values.global.domain }}/dex/keys"
-    K8S_IN_CLUSTER: "true"
-    DATABASE_URL: "postgres://paas:******@pgbouncer:6432/paas?sslmode=require" # replace with your actual database URL
-    OPA_URL: "http://127.0.0.1:8181"
-    OPA_POLICY_PATH: "/data/api/authz/allow"
-    NATS_URL: "nats://nats:4222"
-    clientSecret: "a-very-strong-and-unique-secret-for-vulkan-api" # Replace with k8s secret impl
+    - name: OIDCJWKSURL
+      value: "https://dex.{{ .Values.global.domain }}/dex/keys"
+    - name: K8S_IN_CLUSTER
+      value: "true"
+    - name: DATABASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: vulkan-api-secrets
+          key: databaseUrl
+    - name: OPA_URL
+      value: "http://127.0.0.1:8181"
+    - name: OPA_POLICY_PATH
+      value: "/data/api/authz/allow"
+    - name: NATS_URL
+      value: "nats://nats:4222"
+    - name: OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: vulkan-dex-auth
+          key: apiClientSecret
+    - name: OIDC_ISSUER
+      value: "https://dex.{{ .Values.global.domain }}/dex"
+    - name: OIDC_CLIENT_ID
+      value: "vulkan-api"
   ingress:
     enabled: true
     host: api.vulkan.strawhatengineer.com
     tlsSecret: vulkan-api-tls  # cert-manager will fill this
     annotations:               # extra NGINX tweaks
       nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+      # use ingres shim in cert manager to create the underlying Certificate resource,
+      # and infer the dnsNames from your Ingress hosts and also use the secretName specified 
+      # in your Ingress's TLS block. This way we don't have to manually create the Certificate resource.
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
 
 
 # vulkan cert-manager
-certmanager:          # alias in Chart.yaml
+certmanager: # alias in Chart.yaml
+  enabled: true 
   installCRDs: true
 
 # vulkan nginx
@@ -81,9 +124,9 @@ nginx:
       enabled: true          # makes cloud LB get an external IP
     extraArgs:
       default-ssl-certificate: "vulkan/vulkan-tls"
-    service:
-      annotations:           # example for AWS ELB idle timeout
-        service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
+    # service:
+    #   annotations:           # example for AWS ELB idle timeout
+    #     service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
 
 
 
@@ -104,7 +147,31 @@ nats:                               # alias defined in Chart.yaml
 
 dex:
   enabled: true
-  apiClientSecret: "CHANGE_ME_STRONG_STRING" # Replace with k8s secret impl
+  secretName: dex-auth
+  apiClientSecret: null
+  serviceAccount:
+    create: true
+    name: dex
+  rbac:
+    create: true
+  ingress:
+    enabled: true
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    ingressClassName: nginx # Matches global.ingress.className
+    hosts:
+      - host: dex.{{ .Values.global.domain }}
+        paths:
+          - path: /dex
+            pathType: Prefix
+    tls:
+      - hosts:
+          - dex.{{ .Values.global.domain }}
+        secretName: dex-tls
+    # Optional: If Dex issuer (in the config block below) did NOT include `/dex`,
+    # we might need `annotations: { nginx.ingress.kubernetes.io/rewrite-target: "/$2" }`
+    # and `path: /dex(/|$)(.*)` but current config has `/dex` in the issuer.
 
   # config provided here will be copied directly into dex.yaml in the dex pod.
   config: |
@@ -119,14 +186,12 @@ dex:
         name: Vulkan UI
         public: true
         redirectURIs:
-          - https://vulkan.strawhatengineer.com/callback
+          - https://vulkan.{{ .Values.global.domain }}/callback
           
 
       - id: vulkan-api
         name: Vulkan API
-        secret: {{ .Values.dex.apiClientSecret | quote }}
-        redirectURIs:
-        - https://vulkan.strawhatengineer.com/callback
+        secret: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "apiClientSecret") | b64dec | quote }}
       
      
     connectors:
@@ -134,16 +199,10 @@ dex:
       id: github
       name: GitHub
       config:
-        # These values should be provided securely, e.g., through Helm values sourced from Kubernetes Secrets.
-        clientID: {{ .Values.githubConnector.clientID | quote }}
-        clientSecret: {{ .Values.githubConnector.clientSecret | quote }}
-        redirectURI: https://dex.{{ .Values.global.domain }}/dex/callback # Ensure this path is correct and matches GitHub OAuth app settings.
+        clientID: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "githubClientID") | b64dec | quote }}
+        clientSecret: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "githubClientSecret") | b64dec | quote }}
+        redirectURI: https://dex.{{ .Values.global.domain }}/dex/callback
 
-# It's highly recommended to manage this secret using Kubernetes secrets.
-# For example, if using a plain value (less secure for production):
-githubConnector:
-  clientID: "your_github_oauth_app_client_id"
-  clientSecret: "your_github_oauth_app_client_secret"
 
 
 # Tekton
@@ -160,7 +219,10 @@ argocd:
           name: vulkan-gitops
     ingress:
       enabled: true
-      className: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: "letsencrypt-prod"
+        nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+      ingressClassName: nginx
       hosts:
         # Use global domain to construct the Argo CD URL
         - argocd.vulkan.strawhatengineer.com

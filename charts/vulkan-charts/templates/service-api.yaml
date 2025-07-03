@@ -2,12 +2,17 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "vulkan.apiServiceName" . }}
-  labels: {{- include "vulkan.labels" . | nindent 4 }}
+  labels:
+    {{- include "vulkan.commonResourceLabels" . | nindent 4 }}
+    # Correct component label for the API Service
+    {{- include "vulkan.componentSelectorLabels" (dict "context" . "component" "api-server") | nindent 4 }}
 spec:
   type: {{ .Values.api.service.type }}
   ports:
     - port: {{ .Values.api.service.port }}
-      targetPort: http
+      targetPort: http # This matches the named port 'http' in the 'api' container
       protocol: TCP
       name: http
-  selector: {{- include "vulkan.selectorLabels" . | nindent 4 }}
+  selector:
+    # Selector must match the labels on the API Deployment's pods
+    {{- include "vulkan.componentSelectorLabels" (dict "context" . "component" "api-server") | nindent 4 }}

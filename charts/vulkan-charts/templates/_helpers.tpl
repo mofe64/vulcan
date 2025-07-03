@@ -42,6 +42,26 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
+{{/*
+Common labels for all resources in the chart.
+Optionally accepts a 'component' parameter to add app.kubernetes.io/component label.
+Usage: {{ include "vulkan.labels" . }} or {{ include "vulkan.labels" (dict "context" . "component" "controller") }}
+*/}}
+{{- define "vulkan.labels" -}}
+{{- $context := .context | default . -}}
+{{- $component := .component | default "" -}}
+helm.sh/chart: {{ include "vulkan.chart" $context }}
+{{- if $context.Chart.AppVersion }}
+app.kubernetes.io/version: {{ $context.Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ $context.Release.Service }}
+app.kubernetes.io/name: {{ include "vulkan.name" $context }}
+app.kubernetes.io/instance: {{ $context.Release.Name }}
+{{- if $component }}
+app.kubernetes.io/component: {{ $component }}
+{{- end }}
+{{- end }}
+
 
 
 {{/*
@@ -97,4 +117,12 @@ Create the name of the service account to use
 {{/* define api ingress name */}}
 {{- define "vulkan.apiIngressName" -}}
 {{- printf "%s-api-ingress" (include "vulkan.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create the name of the ServiceAccount for Tekton PipelineRuns.
+This name is referenced by the ApplicationReconciler.
+*/}}
+{{- define "vulkan.tektonServiceAccountName" -}}
+{{- default "tekton-sa" .Values.tekton.serviceAccountName }}
 {{- end }}

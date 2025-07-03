@@ -30,3 +30,8 @@ dependencies:
     version: 1.1.0
     repository: https://cdfoundation.github.io/tekton-helm-chart
     alias: tekton
+  - name: cert-manager
+    version: v1.14.4 
+    repository: https://charts.jetstack.io
+    alias: certmanager # This is the key we use in values.yaml
+    condition: certmanager.enabled # Enable/disable via values.yaml

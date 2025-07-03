@@ -110,20 +110,14 @@ spec:
         EOF
         else
           # Update the existing deployment with the new image
-          if command -v yq &>/dev/null; then
-            # Use yq if available (more reliable)
-            yq eval ".spec.template.spec.containers[0].image = \"$(params.app-image)\"" -i "${APP_PATH}/deployment.yaml"
-          else
-            # Fallback to sed (less reliable but more commonly available)
-            sed -i "s|image: .*|image: $(params.app-image)|g" "${APP_PATH}/deployment.yaml"
-          fi
+          # Use yq for editing the deployment manifest
+          yq eval ".spec.template.spec.containers[0].image = \"$(params.app-image)\"" -i "${APP_PATH}/deployment.yaml"
         fi
 
         # Add annotations with metadata about this deployment
-        if command -v yq &>/dev/null; then
-          yq eval ".metadata.annotations.\"vulkan.io/git-revision\" = \"$(params.source-revision)\"" -i "${APP_PATH}/deployment.yaml"
-          yq eval ".metadata.annotations.\"vulkan.io/deployed-at\" = \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"" -i "${APP_PATH}/deployment.yaml"
-        fi
+        yq eval ".metadata.annotations.\"vulkan.io/git-revision\" = \"$(params.source-revision)\"" -i "${APP_PATH}/deployment.yaml"
+        yq eval ".metadata.annotations.\"vulkan.io/deployed-at\" = \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"" -i "${APP_PATH}/deployment.yaml"
+        
 
     - name: commit-and-push
       image: alpine/git:v2.36.3

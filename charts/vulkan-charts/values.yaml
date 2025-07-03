@@ -207,6 +207,9 @@ dex:
 
 # Tekton
 tekton:
+  # The name of the ServiceAccount used by Tekton PipelineRuns.
+  # This MUST match the `ServiceAccountName` set in the ApplicationReconciler.
+  serviceAccountName: tekton-sa
 
 # Argo CD – Git-Ops engine
 argocd:

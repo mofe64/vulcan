@@ -3,9 +3,9 @@ kind: Certificate
 metadata:
   name: vulkan-api-cert # file/metadata name – arbitrary
 spec:
-  secretName: vulkan-api-tls # 👉 This is the Secret our Ingress references
+  secretName: vulkan-api-tls # This is the Secret our Ingress references
   dnsNames:
-    - api.vulkan.strawhatengineer.com # 👉 our public host
+    - api.vulkan.strawhatengineer.com # our public host
   issuerRef:
-    name: letsencrypt-prod # 👉 MUST match the ClusterIssuer .metadata.name
+    name: letsencrypt-prod # MUST match the ClusterIssuer .metadata.name
     kind: ClusterIssuer

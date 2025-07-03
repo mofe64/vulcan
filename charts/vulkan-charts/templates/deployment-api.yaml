@@ -20,18 +20,7 @@ spec:
         - name: api
           image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
           env:
-            - name: OPA_URL
-              value: {{ .Values.api.env.OPA_URL | quote }}
-            - name: OPA_POLICY_PATH
-              value: {{ .Values.api.env.OPA_POLICY_PATH | quote }}
-            - name: NATS_URL
-              value: {{ .Values.api.env.NATS_URL | quote }}
-            - name: OIDCJWKSURL
-              value: "https://dex.{{ .Values.global.domain }}/dex/keys"
-            - name: K8S_IN_CLUSTER
-              value: {{ .Values.api.env.K8S_IN_CLUSTER | quote }}
-            - name: DATABASE_URL
-              value: {{ .Values.api.env.DATABASE_URL | quote }}
+            {{- toYaml .Values.api.env | nindent 12 }}  # This renders the entire list from values.yaml
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }} # Removed | quote
           ports:
             - name: http

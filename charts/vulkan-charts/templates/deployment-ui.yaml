@@ -22,12 +22,8 @@ spec:
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           ports:
             - name: http
-              containerPort: 3000
+              containerPort: 80
           env:
-            # Tells the SPA where to reach the internal API Service
-            - name: VULKAN_API_BASE
-              value: {{ .Values.ui.apiBase | default "http://vulkan-api.vulkan.svc.cluster.local:8080" | quote }}
-            - name: VULKAN_OIDC_AUTH_URL
-              value: "https://dex.{{ .Values.global.domain }}/dex/auth"
+            {{- toYaml .Values.ui.env | nindent 12 }}  # This renders the entire list from values.yaml
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}

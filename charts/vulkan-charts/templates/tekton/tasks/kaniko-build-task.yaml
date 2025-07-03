@@ -108,17 +108,21 @@ spec:
         # Build and push with Kaniko
         echo "Building image $(params.image-name) from ${DOCKERFILE_PATH} with context ${CONTEXT_PATH}..."
 
-        /kaniko/executor \
+        KANIKO_OUTPUT=$(/kaniko/executor \
           --dockerfile="${DOCKERFILE_PATH}" \
           --context="${CONTEXT_PATH}" \
           --destination="$(params.image-name)" \
           --cleanup \
           ${BUILD_ARGS} \
-          ${EXTRA_ARGS}
+          ${EXTRA_ARGS} 2>&1) # capture output and errors
 
-        # Extract the image digest (if possible)
-        DIGEST=$(grep "digest: sha256:" /kaniko/.docker/config.json || echo "unknown")
-        if [ "${DIGEST}" != "unknown" ]; then
-          DIGEST=$(echo "${DIGEST}" | sed 's/.*digest: sha256:/sha256:/g')
-        fi
-        echo -n "${DIGEST}" > "$(results.image-digest.path)"
+        echo "${KANIKO_OUTPUT}" # print output for debugging
+
+        # Extract the digest from Kaniko's output
+        # Example pattern: "INFO Built and pushed image with digest sha256:..."
+        # Using awk or sed is more robust than simple grep.
+        IMAGE_DIGEST=$(echo "${KANIKO_OUTPUT}" | awk '/Built and pushed image with digest/{print $NF}' | tail -1 || echo "unknown")
+
+
+        echo -n "${IMAGE_DIGEST}" > "$(results.image-digest.path)"
+        echo "Image built and pushed with digest: ${IMAGE_DIGEST}"

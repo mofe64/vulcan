@@ -7,6 +7,7 @@ on:
     paths:
       # IMPORTANT: This must match the path in the repo
       - "charts/vulkan-charts/**"
+      - ".github/workflows/publish-helm-charts.yaml"
   workflow_dispatch: # Allows manual triggering from the GitHub UI
 
 jobs:

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vulkan.apiDeploymentName" . }}
+  labels:
+    {{- include "vulkan.commonResourceLabels" . | nindent 4 }}
+    {{- include "vulkan.componentSelectorLabels" (dict "context" . "component" "api-server") | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas | default 2 }}
+  selector:
+    matchLabels:
+      {{- include "vulkan.componentSelectorLabels" (dict "context" . "component" "api-server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vulkan.componentSelectorLabels" (dict "context" . "component" "api-server") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "vulkan.serviceAccountName" . }}
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          env:
+            {{- toYaml .Values.api.env | nindent 12 }}  # This renders the entire list from values.yaml
+          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }} # Removed | quote
+          ports:
+            - name: http
+              containerPort: 8080
+        - name: opa
+          image: openpolicyagent/opa:0.60.0-rootless
+          args:
+            - "run"
+            - "--server"
+            - "--addr=0.0.0.0:8181"
+            - "--ignore=.*" # don't watch non-policy files
+            - "/policies"
+          volumeMounts:
+            - name: opa-bundle
+              mountPath: /policies
+      volumes:
+        - name: opa-bundle
+          configMap:
+            name: opa-policy-bundle

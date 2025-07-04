@@ -72,6 +72,17 @@ jobs:
           # Copy the newly packaged chart into the 'charts' subdirectory
           cp ${{ env.PACKAGED_CHART_FILE }} ${REPO_ROOT_FOR_PAGES}/charts/
 
+          # Generate index.yaml using helm repo index
+          # This command needs to be run from the root of the desired repository structure
+          # so that index.yaml is generated at that root, and URLs are correct.
+          # The --url argument should be the base URL where your charts will be served.
+          # In your case, it's the GitHub Pages URL + /charts.
+          CHART_REPO_BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          CHART_REPO_URL_FOR_INDEX="${CHART_REPO_BASE_URL}/charts" # This matches your helm repo add URL
+
+          echo "Generating index.yaml for Helm repository at ${REPO_ROOT_FOR_PAGES}..."
+          helm repo index ${REPO_ROOT_FOR_PAGES} --url "${CHART_REPO_URL_FOR_INDEX}"
+
           echo "REPO_ROOT_FOR_PAGES=${REPO_ROOT_FOR_PAGES}" >> $GITHUB_ENV
 
       - name: Publish Helm Chart to GitHub Pages
@@ -90,14 +101,4 @@ jobs:
 
           # Enable Jekyll to prevent GitHub Pages from ignoring files starting with an underscore
           enable_jekyll: true
-
-          # Helm repository specific options:
-          # The URL where your charts will be accessible. This URL will be used in the index.yaml.
-          # It should point to the base URL of your GitHub Pages site followed by the subdirectory where charts are stored.
-          # Example: https://<YOUR_USERNAME_OR_ORG>.github.io/<YOUR_REPO_NAME>/charts
-          chart_repository_url: "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/charts"
-
-          # Action to perform for the chart repository: create or update the index.yaml
-          chart_repository_action: "create_or_update"
-
           full_commit_message: "Publish Helm chart ${{ env.PACKAGED_CHART_FILE }}"

@@ -39,46 +39,183 @@ spec:
           spec:
             description: ClusterSpec defines the desired state of Cluster.
             properties:
-              kubeconfigSecret:
+              clusterID:
+                description: ClusterID is a unique identifier for the cluster
+                pattern: ^[0-9a-fA-F-]{36}$
+                type: string
+              displayName:
+                description: DisplayName is a human-readable name for the cluster
+                maxLength: 100
+                minLength: 3
+                type: string
+              kubeconfigSecretName:
                 description: When Type==attached, hold secret name that contains kubeconfig.
+                type: string
+              kubeconfigSecretNamespace:
+                default: default
+                description: default is "default"
                 type: string
               nodePools:
                 description: NodePools for managed clusters.
                 items:
+                  description: |-
+                    NodePool describes ONE group of worker nodes that share the same
+                    size, scaling rules and scheduling hints.
+
+                    Why we need it
                   properties:
-                    count:
+                    desired:
+                      description: Optional fixed size; when set we bypass autoscaler.
+                      format: int32
+                      type: integer
+                    instanceType:
+                      description: |-
+                        Cloud machine SKU.
+                        AWS: "t3.medium"  GCP: "e2-standard-4"
+                      type: string
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        Node labels copied to every node in this pool.
+                        Apps can select the pool via nodeSelector.
+                      type: object
+                    maxSize:
+                      format: int32
+                      type: integer
+                    minSize:
+                      description: Autoscaler lower & upper bounds.
                       format: int32
                       type: integer
                     name:
+                      description: |-
+                        Logical name for users & dashboards.
+                        e.g. "default", "gpu", "spot"
                       type: string
-                    size:
-                      type: string
+                    taints:
+                      description: |-
+                        Node taints copied to every node in this pool.
+                        Forces only tolerating Pods to schedule here
+                        (e.g. isolate GPU workloads).
+                      items:
+                        description: |-
+                          The node this Taint is attached to has the "effect" on
+                          any pod that does not tolerate the Taint.
+                        properties:
+                          effect:
+                            description: |-
+                              Required. The effect of the taint on pods
+                              that do not tolerate the taint.
+                              Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                            type: string
+                          key:
+                            description: Required. The taint key to be applied to
+                              a node.
+                            type: string
+                          timeAdded:
+                            description: |-
+                              TimeAdded represents the time at which the taint was added.
+                              It is only written for NoExecute taints.
+                            format: date-time
+                            type: string
+                          value:
+                            description: The taint value corresponding to the taint
+                              key.
+                            type: string
+                        required:
+                        - effect
+                        - key
+                        type: object
+                      type: array
                   required:
-                  - count
+                  - instanceType
+                  - maxSize
+                  - minSize
                   - name
-                  - size
                   type: object
                 type: array
+              orgRef:
+                description: OrgRef is the reference to the name of the org cr that
+                  the cluster belongs to.
+                type: string
               region:
                 description: Region is mandatory for managed clouds.
                 type: string
               type:
                 enum:
                 - attached
-                - eks
+                - remote
                 type: string
             required:
+            - clusterID
+            - displayName
+            - orgRef
             - type
             type: object
           status:
             description: ClusterStatus defines the observed state of Cluster.
             properties:
+              conditions:
+                description: |-
+                  Conditions represent the latest available observations
+                  of the resource’s state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
               endpoint:
                 description: Endpoint is useful for CLI ‘kubeconfig’ command.
-                type: string
-              message:
-                type: string
-              phase:
                 type: string
             type: object
         type: object

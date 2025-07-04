@@ -37,7 +37,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: ApplicationSpec defines the desired state of Application.
             properties:
               autoscaling:
                 description: Autoscaling policy (passed to HPA)
@@ -83,16 +82,25 @@ spec:
                   - value
                   type: object
                 type: array
+              orgRef:
+                description: OrgRef is the reference to the name of the organization
+                  that the application belongs to.
+                type: string
+              projectRef:
+                description: ProjectRef is the reference to the project that the application
+                  belongs to.
+                type: string
               repoURL:
                 description: Git repository to build & deploy.
                 format: uri
                 type: string
             required:
             - build
+            - orgRef
+            - projectRef
             - repoURL
             type: object
           status:
-            description: ApplicationStatus defines the observed state of Application.
             properties:
               health:
                 description: Healthy, Progressing, Error

@@ -36,6 +36,16 @@ jobs:
           # IMPORTANT: this path must match the exact location of your Helm chart within monorepo
           HELM_CHART_SOURCE_PATH="charts/vulkan-charts"
 
+          # Change to the chart directory to run dependency update correctly
+          pushd ${HELM_CHART_SOURCE_PATH}
+
+          # Fetch chart dependencies (e.g., nats, crossplane, etc. will be downloaded into 'charts/' subdirectory)
+          echo "Updating Helm chart dependencies for ${HELM_CHART_SOURCE_PATH}..."
+          helm dependency update
+
+          # Go back to the original directory
+          popd
+
           # Extract chart name and version using yq
           CHART_NAME=$(yq e '.name' ${HELM_CHART_SOURCE_PATH}/Chart.yaml)
           CHART_VERSION=$(yq e '.version' ${HELM_CHART_SOURCE_PATH}/Chart.yaml)

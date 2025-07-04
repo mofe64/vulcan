@@ -5,22 +5,20 @@ on:
     branches:
       - main
     paths:
-      # IMPORTANT: This must match the path in the repo
       - "charts/vulkan-charts/**"
       - ".github/workflows/publish-helm-charts.yaml"
-  workflow_dispatch: # Allows manual triggering from the GitHub UI
+  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Required to push to the gh-pages branch
+      contents: write
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          # full history is required for `peaceiris/actions-gh-pages` to update the gh-pages branch
           fetch-depth: 0
 
       - name: Install yq
@@ -30,58 +28,42 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v1
         with:
-          version: v3.14.0 #  Helm version
+          version: v3.14.0
 
       - name: Package Helm Chart
         run: |
-          # IMPORTANT: this path must match the exact location of your Helm chart within monorepo
           HELM_CHART_SOURCE_PATH="charts/vulkan-charts"
 
-          # Change to the chart directory to run dependency update correctly
           pushd ${HELM_CHART_SOURCE_PATH}
-
-          # Fetch chart dependencies (e.g., nats, crossplane, etc. will be downloaded into 'charts/' subdirectory)
           echo "Updating Helm chart dependencies for ${HELM_CHART_SOURCE_PATH}..."
           helm dependency update
-
-          # Go back to the original directory
           popd
 
-          # Extract chart name and version using yq
           CHART_NAME=$(yq e '.name' ${HELM_CHART_SOURCE_PATH}/Chart.yaml)
           CHART_VERSION=$(yq e '.version' ${HELM_CHART_SOURCE_PATH}/Chart.yaml)
 
-          # Create a temporary directory for packaged charts
           PACKAGE_OUTPUT_DIR="packaged-charts-temp"
           mkdir -p ${PACKAGE_OUTPUT_DIR}
 
-          # Package the Helm chart
           helm package ${HELM_CHART_SOURCE_PATH} -d ${PACKAGE_OUTPUT_DIR}
 
-          # Set an environment variable for the packaged chart file path
           echo "PACKAGED_CHART_FILE=${PACKAGE_OUTPUT_DIR}/${CHART_NAME}-${CHART_VERSION}.tgz" >> $GITHUB_ENV
           echo "PACKAGED_CHART_DIR=${PACKAGE_OUTPUT_DIR}" >> $GITHUB_ENV
 
       - name: Prepare Chart Repository Directory
         run: |
-          # This directory will become the root content of your gh-pages branch.
-          # We're organizing charts into a 'charts' subdirectory within it.
+          # Create the repository root directory
           REPO_ROOT_FOR_PAGES="gh-pages-repository"
-          mkdir -p ${REPO_ROOT_FOR_PAGES}/charts
+          mkdir -p ${REPO_ROOT_FOR_PAGES}
 
-          # Copy the newly packaged chart into the 'charts' subdirectory
-          cp ${{ env.PACKAGED_CHART_FILE }} ${REPO_ROOT_FOR_PAGES}/charts/
+          # Copy the packaged chart directly to the root (no subdirectory)
+          cp ${{ env.PACKAGED_CHART_FILE }} ${REPO_ROOT_FOR_PAGES}/
 
-          # Generate index.yaml using helm repo index
-          # This command needs to be run from the root of the desired repository structure
-          # so that index.yaml is generated at that root, and URLs are correct.
-          # The --url argument should be the base URL where your charts will be served.
-          # In your case, it's the GitHub Pages URL + /charts.
+          # Generate index.yaml with the correct base URL
           CHART_REPO_BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
-          CHART_REPO_URL_FOR_INDEX="${CHART_REPO_BASE_URL}/charts" # This matches your helm repo add URL
 
           echo "Generating index.yaml for Helm repository at ${REPO_ROOT_FOR_PAGES}..."
-          helm repo index ${REPO_ROOT_FOR_PAGES} --url "${CHART_REPO_URL_FOR_INDEX}"
+          helm repo index ${REPO_ROOT_FOR_PAGES} --url "${CHART_REPO_BASE_URL}"
 
           echo "REPO_ROOT_FOR_PAGES=${REPO_ROOT_FOR_PAGES}" >> $GITHUB_ENV
 
@@ -89,16 +71,9 @@ jobs:
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # The directory to be published as the gh-pages branch content
           publish_dir: ${{ env.REPO_ROOT_FOR_PAGES }}
-
-          # Destination directory within the gh-pages branch (publish to root)
           destination_dir: .
-
-          # Standard user for automated commits
           user_name: "github-actions[bot]"
           user_email: "github-actions[bot]@users.noreply.github.com"
-
-          # Enable Jekyll to prevent GitHub Pages from ignoring files starting with an underscore
           enable_jekyll: true
           full_commit_message: "Publish Helm chart ${{ env.PACKAGED_CHART_FILE }}"

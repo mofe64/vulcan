@@ -3,7 +3,7 @@ entries:
   vulkan:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-07-04T12:33:30.613689092Z"
+    created: "2025-07-04T15:04:51.90634811Z"
     dependencies:
     - alias: nats
       name: nats
@@ -35,10 +35,10 @@ entries:
       repository: https://charts.jetstack.io
       version: v1.14.4
     description: Self-hostable PaaS control-plane
-    digest: 5e2174eac00bf419cab9f1a4f08b51bbcd5abb27f4af2a9e4ca15878507a7c71
+    digest: 37bd16bb3c667f8f6c4e16ad14db703c6a207300cba22ef177a8bfd8001a0c5b
     name: vulkan
     type: application
     urls:
-    - https://mofe64.github.io/vulcan/charts/charts/vulkan-0.1.0.tgz
+    - https://mofe64.github.io/vulcan/vulkan-0.1.0.tgz
     version: 0.1.0
-generated: "2025-07-04T12:33:30.585095121Z"
+generated: "2025-07-04T15:04:51.880706489Z"

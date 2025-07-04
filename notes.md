@@ -293,3 +293,42 @@ In cert-manager, both `Issuer` and `ClusterIssuer` are resources used to represe
 | **Use Cases**  | Namespace-specific needs, delegation | Centralized, cluster-wide certificate issuance |
 
 In most production environments, you'll often see `ClusterIssuer` being used for common external CAs like Let's Encrypt to provide certificates for ingress resources that serve applications across multiple namespaces. `Issuers` might be used for internal CA systems or for specific namespace-level testing or development.
+
+## Issue needs, CRDs for cert-manager, tekton and prometheus before installing our own resources that use them
+
+Quick fix -> Install CRD providers first
+
+```
+helm repo add jetstack https://charts.jetstack.io
+helm repo add tekton https://cdfoundation.github.io/tekton-helm-chart
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+```
+
+Install cert-manager with CRDs
+
+```
+helm install cert-manager jetstack/cert-manager \
+ --namespace cert-manager \
+ --create-namespace \
+ --set installCRDs=true \
+ --wait
+```
+
+Install Tekton
+
+```
+helm install tekton-pipeline tekton/tekton-pipeline \
+ --namespace tekton-pipelines \
+ --create-namespace \
+ --wait
+```
+
+Install Prometheus Operator
+
+```
+helm install prometheus prometheus-community/kube-prometheus-stack \
+ --namespace monitoring \
+ --create-namespace \
+ --wait
+```

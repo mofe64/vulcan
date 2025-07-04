@@ -3,6 +3,9 @@ apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
   name: update-gitops-repo-task
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "6"
 spec:
   description: |
     Clone the GitOps repository, update the application's deployment manifests with

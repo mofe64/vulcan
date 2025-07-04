@@ -5,6 +5,9 @@ metadata:
   name: app-build-buildpack
   labels:
     app.kubernetes.io/part-of: vulkan-platform
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "6"
 spec:
   description: |
     This pipeline clones a git repository, builds the source code using

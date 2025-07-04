@@ -8,12 +8,12 @@ global:
   ingress:
     className: nginx
   imageRegistry: ghcr.io/mofe6/vulkan         
-  replicaCount: 1                             
+                           
 
 # autoscaling config
 autoscaling:
   enabled: true
-  minReplicas: 2
+  minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
@@ -118,6 +118,9 @@ certmanager: # alias in Chart.yaml
   enabled: true 
   installCRDs: true
 
+cert-manager:
+  installCRDs: true
+
 # vulkan nginx
 nginx:
   controller:
@@ -211,6 +214,8 @@ tekton:
   # The name of the ServiceAccount used by Tekton PipelineRuns.
   # This MUST match the `ServiceAccountName` set in the ApplicationReconciler.
   serviceAccountName: tekton-sa
+  tekton-pipeline:
+    enabled: true
 
 # Argo CD – Git-Ops engine
 argocd:
@@ -321,6 +326,21 @@ metrics:
 # [PROMETHEUS]: To enable a ServiceMonitor to export metrics to Prometheus set true
 prometheus:
   enable: true
+
+prometheus-operator:
+  enabled: true
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+  alertmanager:
+    enabled: false
+  prometheusOperator:
+    enabled: true
+    admissionWebhooks:
+      enabled: false
+    tls:
+      enabled: false
 
 # [CERT-MANAGER]: To enable cert-manager injection to webhooks set true
 operator:

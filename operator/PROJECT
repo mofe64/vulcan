@@ -6,6 +6,8 @@ cliVersion: 4.6.0
 domain: platform.io
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: operator
 repo: github.com/mofe64/vulkan/operator
 resources:

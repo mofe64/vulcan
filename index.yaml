@@ -3,7 +3,7 @@ entries:
   vulkan:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-07-04T17:08:37.960148068Z"
+    created: "2025-07-04T17:24:48.941153084Z"
     dependencies:
     - alias: certmanager
       condition: certmanager.enabled
@@ -15,6 +15,11 @@ entries:
       name: tekton-pipeline
       repository: https://cdfoundation.github.io/tekton-helm-chart
       version: 1.1.0
+    - alias: prometheus-operator
+      condition: prometheus-operator.enabled
+      name: kube-prometheus-stack
+      repository: https://prometheus-community.github.io/helm-charts
+      version: 58.1.0
     - alias: nats
       name: nats
       repository: https://nats-io.github.io/k8s/helm/charts
@@ -36,10 +41,10 @@ entries:
       repository: https://kubernetes.github.io/ingress-nginx
       version: 4.10.0
     description: Self-hostable PaaS control-plane
-    digest: 7d09f280030c69de0ccfa39a827c42260b16c59d3f5b02ac39a1979730cd8f10
+    digest: b937c84966b88ce6b47065978dd39d1fe353bfc7e3a7e88fa179c75dcbdbe0bf
     name: vulkan
     type: application
     urls:
     - https://mofe64.github.io/vulcan/vulkan-0.1.0.tgz
     version: 0.1.0
-generated: "2025-07-04T17:08:37.934256556Z"
+generated: "2025-07-04T17:24:48.893455403Z"

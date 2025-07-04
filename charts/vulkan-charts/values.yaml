@@ -70,7 +70,7 @@ ui:
 api:
   image:
     repository: ghcr.io/mofe6/vulkan-api
-    tag: 0.1.0
+    tag: latest
     pullPolicy: IfNotPresent
   replicas: 3
   service:
@@ -258,7 +258,7 @@ controllerManager:
   replicas: 1
   container:
     image:
-      repository: controller
+      repository: ghcr.io/mofe6/vulkan-operator
       tag: latest
     args:
       - "--leader-elect"

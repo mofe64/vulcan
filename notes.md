@@ -240,3 +240,56 @@ name: tekton-pipeline # chart name in the repo
   version: "1.1.0" # pin the version you saw with `helm search`
   repository: "https://cdfoundation.github.io/tekton-helm-chart" # (optional) let users switch Tekton on/off from values.yaml
 ```
+
+## Cert-manager issuer vs clusterIssuer
+
+In cert-manager, both `Issuer` and `ClusterIssuer` are resources used to represent certificate authorities (CAs) that can issue signed X.509 certificates. The fundamental difference between them lies in their **scope within the Kubernetes cluster**:
+
+1.  **`Issuer` (Namespaced Scope)**
+
+    - **Definition:** An `Issuer` resource operates within a specific **namespace**.
+    - **Usage:** It can only issue certificates for `Certificate` resources that are defined in the **same namespace** as the `Issuer` itself.
+    - **Analogy:** Think of it like a local certificate authority that serves only its immediate neighborhood (namespace).
+    - **Use Cases:**
+      - When you want to delegate certificate management to specific teams or applications within their own namespaces.
+      - For development or testing environments where you want to limit the impact of an issuer.
+      - When different namespaces need different CA configurations or sources (e.g., one namespace uses Let's Encrypt staging, another uses production).
+    - **YAML Example:**
+      ```yaml
+      apiVersion: cert-manager.io/v1
+      kind: Issuer
+      metadata:
+        name: my-namespace-issuer
+        namespace: my-app-namespace # This issuer is specific to this namespace
+      spec:
+        # ... issuer configuration (e.g., ACME, Vault, self-signed)
+      ```
+
+2.  **`ClusterIssuer` (Cluster-Wide Scope)**
+    - **Definition:** A `ClusterIssuer` resource is a **cluster-scoped** resource. This means it is not tied to any single namespace.
+    - **Usage:** It can issue certificates for `Certificate` resources from **any namespace** within the cluster.
+    - **Analogy:** Think of it like a central, global certificate authority that can serve any application or team across the entire city (cluster).
+    - **Use Cases:**
+      - When you want a single, centralized CA configuration to serve all applications in the cluster (e.g., a single Let's Encrypt production setup).
+      - For common infrastructure components that might span namespaces (e.g., ingress controllers).
+      - When you want to simplify management by having fewer issuer configurations.
+    - **YAML Example:**
+      ```yaml
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-prod # No namespace specified, it's cluster-wide
+      spec:
+        # ... issuer configuration (e.g., ACME, Vault, self-signed)
+      ```
+
+### Key Differences Summarized:
+
+| Feature        | `Issuer`                             | `ClusterIssuer`                                |
+| :------------- | :----------------------------------- | :--------------------------------------------- |
+| **Scope**      | Namespaced                           | Cluster-scoped                                 |
+| **Visibility** | Only accessible within its namespace | Accessible from any namespace                  |
+| **Control**    | Delegated to namespace owners/teams  | Managed by cluster administrators              |
+| **Use Cases**  | Namespace-specific needs, delegation | Centralized, cluster-wide certificate issuance |
+
+In most production environments, you'll often see `ClusterIssuer` being used for common external CAs like Let's Encrypt to provide certificates for ingress resources that serve applications across multiple namespaces. `Issuers` might be used for internal CA systems or for specific namespace-level testing or development.

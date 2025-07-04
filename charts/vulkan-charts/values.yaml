@@ -211,10 +211,12 @@ dex:
 
 # Tekton
 tekton:
+  enabled: true
   # The name of the ServiceAccount used by Tekton PipelineRuns.
   # This MUST match the `ServiceAccountName` set in the ApplicationReconciler.
   serviceAccountName: tekton-sa
-  tekton-pipeline:
+  
+tekton-pipeline:
     enabled: true
 
 # Argo CD – Git-Ops engine

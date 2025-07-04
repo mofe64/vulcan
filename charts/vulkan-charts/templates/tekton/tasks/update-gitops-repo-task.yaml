@@ -51,7 +51,7 @@ spec:
         git clone "$(params.gitops-repo-url)" "${CHECKOUT_PATH}"
 
     - name: update-manifests
-      image: bitnami/kubectl:latest
+      image: mikefarah/yq:4.35.2
       script: |
         #!/usr/bin/env sh
         set -eu

@@ -4,7 +4,7 @@ This guide explains how to use the Vulcan platform's namespace-scoped role bindi
 
 ## Overview
 
-The Vulcan platform automatically creates Kubernetes RBAC role bindings for project members based on their project-level roles. This ensures that users can only access resources within their assigned project namespaces.
+Vulcan automatically creates Kubernetes RBAC role bindings for project members based on their project-level roles. This ensures that users can only access resources within their assigned project namespaces.
 
 ## Project Roles
 

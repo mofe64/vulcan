@@ -1,61 +1,88 @@
-## notes created while building this
+# Notes created while building this
 
-openapi code gen commands ->
+### openapi code gen commands
+
 install latest oapi-codegen `go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest`
-Note -> go install doesn't add to path, to do this `ls "$(go env GOPATH)/bin/oapi-codegen"` to get install location and add to path
-I used the one time shell command -> `export PATH="$HOME/go/bin:$PATH"` to set path for current shell session
 
-USING oapi-codegen directtly
+Note -> go install doesn't add to path, to do this run the following to get install location and add to path
+
+```
+ls "$(go env GOPATH)/bin/oapi-codegen"
+```
+
+I used the one time shell command : `export PATH="$HOME/go/bin:$PATH"` to set path for current shell session
+
+#### USING oapi-codegen directtly
+
 To generate server contract stubs -> `oapi-codegen -generate "types,gin-server" -package rest -o internal/server/server.gen.go api/openapi.yaml`
+
 To generate client contract stubs -> `oapi-codegen -generate "types,client" -package api -o internal/api/openapi_client.gen.go api/openapi.yaml`
 
-USING oapi-codegen go tool
+#### USING oapi-codegen go tool
+
 install tool in projet `go get -tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest`
+
 then use add directive to go file `//go:generate go tool oapi-codegen -config specification/config.yaml specification/openapi.yaml`
-then run go generate
+then run `go generate`
 
 ### KUBE BUILDER
 
-Note -> we created the kubebuilder project in another dir (operator), because we alread have code in the root,
-so easist way was just to turn project into a multi-module project and have the operator in its own module
-Initialise the repo as a Kubebuilder project (in operator dir) `kubebuilder init --domain platform.io --repo github.com/mofe64/vulkan/operator`
+Creating a new Kubebuilder project (in operator dir)
 
-creating crds
-`kubebuilder create api --group platform --version v1alpha1 --kind Org       --namespaced=false`
-`kubebuilder create api --group platform --version v1alpha1 --kind Project   --namespaced=false`
-`kubebuilder create api --group platform --version v1alpha1 --kind Application`
-`kubebuilder create api --group platform --version v1alpha1 --kind Cluster   --namespaced=false`
-`kubebuilder create api --group platform --version v1alpha1 --kind ProjectClusterBinding --namespaced=false`
+```
+kubebuilder init --domain platform.io --repo github.com/mofe64/vulkan/operator
+```
 
-Generate crds
+#### creating crds
+
+```
+kubebuilder create api --group platform --version v1alpha1 --kind Org       --namespaced=false
+kubebuilder create api --group platform --version v1alpha1 --kind Project   --namespaced=false
+kubebuilder create api --group platform --version v1alpha1 --kind Application
+kubebuilder create api --group platform --version v1alpha1 --kind Cluster   --namespaced=false
+kubebuilder create api --group platform --version v1alpha1 --kind ProjectClusterBinding --namespaced=false
+```
+
+#### Updating crds after making changes
+
 `cd operator`
 `make manifests` or `make all`
 
-generate work file to link modules -> `go work init ./ ./operator`
+generate work file to link modules -> `go work init ./ ./operator` (this was when operator directory was still inside api directory)
 
-## debug
+## Debug Notes
 
-### ßFixing "undefined: platformv1"
+### Fixing "undefined: platformv1" inside our api
 
-The compiler can't see the generated package. Do all three checks:
+This happends because the compiler can't see the generated package for our crds.
 
-Import it in the file (often with an alias):
+Do all three checks:
 
-```
-import (
-    platformv1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
-)
-```
+1.  Import crds in the file (often with an alias):
 
-Make the root module aware of the operator module
-Either add a replace in root go.mod:
-`replace github.com/mofe64/vulkan/operator => ./operator`
-Or create a Go work-space (go work init ./ ./operator) so both modules compile together.
+    ```
+    import (
+        platformv1 "github.com/mofe64/vulkan/operator/api/v1alpha1"
+    )
+    ```
 
-Run go generate / make generate in operator/
-This regenerates zz_generated.deepcopy.go and ensures AddToScheme exists before the root module builds.
+2.  Make the api module aware of the operator module
 
-Once the path is imported correctly and the operator code is generated, platformv1.AddToScheme will resolve and the client will be able to serialise / deserialise your CRDs.
+    Make sure that there is go go workspace with entries for the api and operator or create a new one
+    by running the command below. This will make sure that both modules compile together.
+
+    ```
+    go work init path/to/api/root path/to/operator/root
+    ```
+
+    Next we need to add a replace in api go.mod
+
+    `replace github.com/mofe64/vulkan/operator => ./operator`
+
+3.  Run `make generate in operator`
+    This regenerates zz_generated.deepcopy.go and ensures AddToScheme exists before the root module builds.
+
+Once the path is imported correctly and the operator code is generated, platformv1.AddToScheme will resolve and the client will be able to serialise and deserialise your CRDs.
 
 ### OPA Config
 

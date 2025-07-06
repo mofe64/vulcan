@@ -4,7 +4,7 @@ This README provides a high-level overview of the core infrastructure components
 
 ## 1. TLS and Traffic Management (Cert-Manager, Ingress, NGINX Ingress Controller)
 
-- **NGINX Ingress Controller:** Acts as the entry point for all external HTTP/HTTPS traffic into the Kubernetes cluster. It routes requests to the correct internal services (UI, API, Dex) based on the hostname and path. It also handles **TLS termination**, decrypting incoming HTTPS traffic.
+- **NGINX Ingress Controller:** Acts as the entry point for all external HTTP/HTTPS traffic into the Vulkan K8s cluster. It routes requests to the correct internal services (UI, API, Dex) based on the hostname and path. It also handles **TLS termination**, decrypting incoming HTTPS traffic.
 - **Cert-Manager:** Automates the lifecycle of TLS certificates. It integrates with Certificate Authorities (like Let's Encrypt) to **automatically provision, renew, and manage** your SSL/TLS certificates.
 - **Ingress Resource:** A Kubernetes object that defines how external traffic should be routed to internal services. It acts as a configuration interface for the NGINX Ingress Controller.
 
@@ -12,7 +12,7 @@ This README provides a high-level overview of the core infrastructure components
 
 ## 2. Application-Specific Usage
 
-In our application:
+For our application components (UI, API, DEX):
 
 - **DNS:** We use specific subdomains for each component:
   - `vulkan.strawhatengineer.com` (for the UI)
@@ -20,6 +20,12 @@ In our application:
   - `dex.strawhatengineer.com` (for the Dex authentication service)
 - **Ingress & TLS:** Each of these domains is exposed via its own Kubernetes Ingress resource. Cert-Manager, configured with a `ClusterIssuer` named `letsencrypt-prod`, automatically provisions and renews TLS certificates for these hostnames, ensuring all external communication is encrypted with HTTPS.
 - **NGINX Ingress Controller** is the backbone handling the routing for all these domains.
+
+For our k8s operator:
+
+- We have a certificate names `metrics-certs` this is the TLS certificate for the metric server attached to the operator
+
+- We also have a self-signed `Issuer` named `selfsigned-issuer` that is namespaced scoped to the installation namespace for vulkan, this self signed issuer is responsible for issuing the `metrics-certs` certificate for the operator metrics-server.
 
 ## 3. Dex Authentication Explained
 

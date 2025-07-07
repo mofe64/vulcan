@@ -359,3 +359,7 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
  --create-namespace \
  --wait
 ```
+
+### After adding a new dep to chart.yaml
+
+run `helm dependency update`

@@ -396,8 +396,8 @@ prometheusoperator: # This key matches the 'alias' in Chart.yaml
 # metallb for load balancer
 # configInLine isn't supported from v0.13.0 upward,
 # so I downgraded to v0.12.1
-
 metallb:
+  installCRDs: true
   enabled: true
   configInline:
     address-pools:

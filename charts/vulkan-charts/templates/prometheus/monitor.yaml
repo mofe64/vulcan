@@ -1,11 +1,12 @@
 # To integrate with Prometheus.
-{{- if .Values.prometheus.enable }}
+{{- if .Values.prometheus-operator.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   labels:
     {{- include "chart.labels" . | nindent 4 }}
     control-plane: controller-manager
+    release: {{ .Release.Name }}
   name: operator-controller-manager-metrics-monitor
   namespace: {{ .Release.Namespace }}
 spec:

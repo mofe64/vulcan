@@ -3,10 +3,10 @@ entries:
   vulkan:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-07-04T18:04:06.840042998Z"
+    created: "2025-07-07T20:59:17.267856172Z"
     dependencies:
     - alias: certmanager
-      condition: certmanager.enabled
+      condition: certmanager.enable
       name: cert-manager
       repository: https://charts.jetstack.io
       version: v1.14.4
@@ -36,15 +36,20 @@ entries:
       name: dex
       repository: https://charts.dexidp.io
       version: 0.17.0
+    - alias: metallb
+      condition: metallb.enabled
+      name: metallb
+      repository: https://metallb.github.io/metallb
+      version: 0.15.2
     - alias: nginx
       name: ingress-nginx
       repository: https://kubernetes.github.io/ingress-nginx
       version: 4.10.0
     description: Self-hostable PaaS control-plane
-    digest: 62dad72e4a83d4efeb1400017dd27d204f8f33b476ab7942c591c24e9675c2e4
+    digest: 68cf58dc752f630ae8f7b21b396b28994acc401ba4245a7ed87a76072fda2525
     name: vulkan
     type: application
     urls:
     - https://mofe64.github.io/vulcan/vulkan-0.1.0.tgz
     version: 0.1.0
-generated: "2025-07-04T18:04:06.791461984Z"
+generated: "2025-07-07T20:59:17.218568419Z"

@@ -19,8 +19,8 @@ dependencies:
   - name: kube-prometheus-stack
     version: 58.1.0
     repository: https://prometheus-community.github.io/helm-charts
-    alias: prometheus-operator
-    condition: prometheus-operator.enabled
+    alias: prometheusoperator
+    condition: prometheusoperator.enabled
   - name: nats
     version: 1.3.0
     repository: https://nats-io.github.io/k8s/helm/charts
@@ -38,7 +38,7 @@ dependencies:
     alias: dex
     condition: dex.enabled
   - name: metallb
-    version: 0.15.2
+    version: 0.12.1
     repository: https://metallb.github.io/metallb
     alias: metallb
     condition: metallb.enabled

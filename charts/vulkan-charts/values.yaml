@@ -314,8 +314,8 @@ metrics:
 networkPolicy:
   enable: false
 
-# Kube-Prometheus-Stack Configuration (aliased as 'prometheus-operator')
-prometheus-operator: # This key matches the 'alias' in Chart.yaml
+# Kube-Prometheus-Stack Configuration (aliased as 'prometheusoperator')
+prometheusoperator: # This key matches the 'alias' in Chart.yaml
   enabled: true # Enable the sub-chart itself
 
   # Configuration specific to the Prometheus Operator controller
@@ -354,13 +354,13 @@ prometheus-operator: # This key matches the 'alias' in Chart.yaml
       # ServiceMonitor and PodMonitor selectors
       # This 'release' label MUST match the 'release' label in your ServiceMonitor/PodMonitor definitions.
       # Since operator ServiceMonitor uses `release: {{ .Release.Name }}` 
-      # and this sub-chart is aliased as 'prometheus-operator', this will correctly match.
+      # and this sub-chart is aliased as 'prometheusoperator', this will correctly match.
       serviceMonitorSelector:
         matchLabels:
-          release: prometheus-operator
+          release: prometheusoperator
       podMonitorSelector:
         matchLabels:
-          release: prometheus-operator
+          release: prometheusoperator
 
   # Configuration for Alertmanager
   alertmanager:
@@ -394,6 +394,9 @@ prometheus-operator: # This key matches the 'alias' in Chart.yaml
 
 
 # metallb for load balancer
+# configInLine isn't supported from v0.13.0 upward,
+# so I downgraded to v0.12.1
+
 metallb:
   enabled: true
   configInline:
@@ -404,8 +407,16 @@ metallb:
         addresses:
           - 192.168.8.210-192.168.8.215
 
-
-
+# secrets placeholder for vulkan api
+secrets:
+  dex:
+    apiClientSecret: ""
+  github:
+    clientID:     ""
+    clientSecret: ""
+  databaseUrl: ""
+  dockerConfigJson: ""
+  gitCredentials: ""
 
 
 # Crossplane – Cloud Resource Management

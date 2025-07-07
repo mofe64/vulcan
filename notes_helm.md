@@ -1,10 +1,10 @@
-# Vulkan Helm Installation Guide
+# Vulkan Helm Installation notes
 
-This guide covers the installation, management, and removal of Vulkan using Helm charts.
+The installation, management, and removal of Vulkan using Helm charts.
 
 ## Prerequisites
 
-Before installing Vulkan, ensure you have:
+Before installing Vulkan, we need to ensure we have:
 
 - Helm 3.x installed
 - kubectl configured with access to your target cluster
@@ -21,6 +21,7 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo add jetstack https://charts.jetstack.io
 helm repo add tekton https://cdfoundation.github.io/tekton-helm-chart
 helm repo add mycharts https://mofe64.github.io/vulcan
+helm repo add metallb https://metallb.github.io/metallb
 ```
 
 ### 2. Update Helm Repositories

@@ -1,4 +1,4 @@
-{{- if .Values.operator.certmanager.enable }}
+{{- if .Values.certmanager.enable }}
 # Self-signed Issuer
 apiVersion: cert-manager.io/v1
 kind: Issuer

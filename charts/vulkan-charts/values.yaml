@@ -9,7 +9,6 @@ global:
     className: nginx
   imageRegistry: ghcr.io/mofe6/vulkan         
                            
-
 # autoscaling config
 autoscaling:
   enabled: true
@@ -112,31 +111,22 @@ api:
       # in your Ingress's TLS block. This way we don't have to manually create the Certificate resource.
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
 
-
 # vulkan cert-manager
 certmanager: # alias in Chart.yaml
-  enabled: true 
-  installCRDs: true
-
-cert-manager:
+  enable: true 
   installCRDs: true
 
 # vulkan nginx
 nginx:
   controller:
     publishService:
-      enabled: true          # makes cloud LB get an external IP
+      # create nginx service as type load balancer
+      enabled: true          # configure controller to allow for external ip access
     extraArgs:
       default-ssl-certificate: "vulkan/vulkan-tls"
-    # service:
-    #   annotations:           # example for AWS ELB idle timeout
-    #     service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "60"
 
-
-
-
-# ==================== Cross-chart overrides ====================
-nats:                               # alias defined in Chart.yaml
+# nats
+nats:  # alias defined in Chart.yaml
   nats:
     jetstream:
       enabled: true                 # turn on persistence & streams
@@ -149,6 +139,7 @@ nats:                               # alias defined in Chart.yaml
     enabled: true
     replicas: 1
 
+# dex
 dex:
   enabled: true
   secretName: dex-auth
@@ -207,17 +198,12 @@ dex:
         clientSecret: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "githubClientSecret") | b64dec | quote }}
         redirectURI: https://dex.{{ .Values.global.domain }}/dex/callback
 
-
-
 # Tekton
 tekton:
   enabled: true
   # The name of the ServiceAccount used by Tekton PipelineRuns.
   # This MUST match the `ServiceAccountName` set in the ApplicationReconciler.
   serviceAccountName: tekton-sa
-  
-tekton-pipeline:
-    enabled: true
 
 # Argo CD – Git-Ops engine
 argocd:
@@ -259,8 +245,7 @@ argocd:
           prune: true
           selfHeal: true
 
-
-# [MANAGER]: Manager Deployment Configurations
+# vulkan operator
 controllerManager:
   replicas: 1
   container:
@@ -302,11 +287,11 @@ controllerManager:
   terminationGracePeriodSeconds: 10
   serviceAccountName: operator-controller-manager
 
-# [RBAC]: To enable RBAC (Permissions) configurations
+# RBAC for vulkan operator
 rbac:
   enable: true
 
-# [CRDs]: To enable the CRDs
+# CRDs for vulkan operator
 crd:
   # This option determines whether the CRDs are included
   # in the installation process.
@@ -319,43 +304,105 @@ crd:
   # (Certificates, Issuers, ...) due to garbage collection.
   keep: true
 
-# [METRICS]: Set to true to generate manifests for exporting metrics.
+# metrics for vulkan operator
 # To disable metrics export set false, and ensure that the
 # ControllerManager argument "--metrics-bind-address=:8443" is removed.
 metrics:
   enable: true
 
-# [PROMETHEUS]: To enable a ServiceMonitor to export metrics to Prometheus set true
-prometheus:
-  enable: true
-
-prometheus-operator:
-  enabled: true
-  prometheus:
-    enabled: false
-  grafana:
-    enabled: false
-  alertmanager:
-    enabled: false
-  prometheusOperator:
-    enabled: true
-    admissionWebhooks:
-      enabled: false
-    tls:
-      enabled: false
-
-# [CERT-MANAGER]: To enable cert-manager injection to webhooks set true
-operator:
-  certmanager:
-    enable: true
-
-# [NETWORK POLICIES]: To enable NetworkPolicies set true
+# network policies for vulkan operator,
 networkPolicy:
   enable: false
 
+# Kube-Prometheus-Stack Configuration (aliased as 'prometheus-operator')
+prometheus-operator: # This key matches the 'alias' in Chart.yaml
+  enabled: true # Enable the sub-chart itself
+
+  # Configuration specific to the Prometheus Operator controller
+  prometheusOperator:
+    enabled: true
+    admissionWebhooks:
+      enabled: true
+    tls:
+      enabled: true
+
+  # Configuration for Prometheus server instance
+  prometheus:
+    enabled: true # Ensure Prometheus server deployment is enabled
+    prometheusSpec:
+      # Resource requests and limits for Prometheus pods
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+      # not suitable for production, but works for now
+      emptyDir: {}
+      # Data retention period
+      # retention: 15d
+      # Persistent storage configuration for Prometheus data (disabled for now)
+      # storageSpec:
+      #   volumeClaimTemplate:
+      #     spec:
+      #       storageClassName: standard # <<< IMPORTANT: REPLACE WITH YOUR ACTUAL STORAGECLASS NAME!
+      #       resources:
+      #         requests:
+      #           storage: 50Gi # Allocate 50 GB for Prometheus data
+
+      # ServiceMonitor and PodMonitor selectors
+      # This 'release' label MUST match the 'release' label in your ServiceMonitor/PodMonitor definitions.
+      # Since operator ServiceMonitor uses `release: {{ .Release.Name }}` 
+      # and this sub-chart is aliased as 'prometheus-operator', this will correctly match.
+      serviceMonitorSelector:
+        matchLabels:
+          release: prometheus-operator
+      podMonitorSelector:
+        matchLabels:
+          release: prometheus-operator
+
+  # Configuration for Alertmanager
+  alertmanager:
+    enabled: false # DISABLED
+
+  # Configuration for Grafana
+  grafana:
+    enabled: true 
+
+    # Set a strong admin password for Grafana (REQUIRED)
+    adminPassword: your-secure-grafana-password 
+
+    # Expose Grafana via Ingress
+    ingress:
+      enabled: true
+      className: nginx 
+      hosts:
+        - grafana.vulkan.strawhatengineer.com
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod  
+      tls: # Cert-manager will use this to create the TLS secret
+        - secretName: grafana-vulkan-strawhatengineer-com-tls
+          hosts:
+            - grafana.vulkan.strawhatengineer.com
+
+    persistence:
+      enabled: false
+      # type: pvc
+      # storageClassName: standard # must match actual storage class name
+      # size: 4Gi # Allocate 4 GB for Grafana data
 
 
-
+# metallb for load balancer
+metallb:
+  enabled: true
+  configInline:
+    address-pools:
+      - name: default-pool
+        protocol: layer2
+        # Use the recommended range here
+        addresses:
+          - 192.168.8.210-192.168.8.215
 
 
 
@@ -384,3 +431,4 @@ networkPolicy:
 #     #     aws_access_key_id: "YOUR_AWS_ACCESS_KEY"
 #     #     aws_secret_access_key: "YOUR_AWS_SECRET_KEY"
 #     #     aws_region: "us-west-2"
+

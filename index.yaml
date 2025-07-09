@@ -3,7 +3,7 @@ entries:
   vulkan:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-07-07T21:31:55.835467117Z"
+    created: "2025-07-09T19:12:48.181377248Z"
     dependencies:
     - alias: certmanager
       condition: certmanager.enable
@@ -40,16 +40,16 @@ entries:
       condition: metallb.enabled
       name: metallb
       repository: https://metallb.github.io/metallb
-      version: 0.12.1
+      version: 0.15.2
     - alias: nginx
       name: ingress-nginx
       repository: https://kubernetes.github.io/ingress-nginx
       version: 4.10.0
     description: Self-hostable PaaS control-plane
-    digest: e225d61e1a0492b7bfe80fc0297cf49e3a4d30c7c1e6d488c54395537cbbbaaf
+    digest: 2b9d941cf89d590fda57d0bb91ed06661b624a64d4ab591e1ecd852f925556bd
     name: vulkan
     type: application
     urls:
     - https://mofe64.github.io/vulcan/vulkan-0.1.0.tgz
     version: 0.1.0
-generated: "2025-07-07T21:31:55.786276873Z"
+generated: "2025-07-09T19:12:48.129823882Z"

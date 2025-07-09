@@ -399,10 +399,7 @@ prometheusoperator: # This key matches the 'alias' in Chart.yaml
 
 
 # metallb for load balancer
-metallb:
-  enabled: true
-  crds:
-    create: true
+
 
 # secrets placeholder for vulkan api
 secrets:

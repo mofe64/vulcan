@@ -37,11 +37,6 @@ dependencies:
     repository: https://charts.dexidp.io
     alias: dex
     condition: dex.enabled
-  - name: metallb
-    version: 0.15.2
-    repository: https://metallb.github.io/metallb
-    alias: metallb
-    condition: metallb.enabled
   - name: ingress-nginx
     alias: nginx
     version: 4.10.0

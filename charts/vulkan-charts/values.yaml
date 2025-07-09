@@ -7,7 +7,8 @@ global:
   email: ogunbiyioladapo33@gmail.com
   ingress:
     className: nginx
-  imageRegistry: ghcr.io/mofe6/vulkan         
+  vulkan:
+    imageRegistry: ghcr.io/mofe6/vulkan         
                            
 # autoscaling config
 autoscaling:

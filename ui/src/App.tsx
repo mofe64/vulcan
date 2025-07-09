@@ -5,6 +5,7 @@ import {
   Navigate,
 } from "react-router-dom";
 import Login from "./pages/Login";
+import AboutUs from "./pages/AboutUs";
 import "./index.css";
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/about" element={<AboutUs />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>

@@ -363,3 +363,45 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
 ### After adding a new dep to chart.yaml
 
 run `helm dependency update`
+
+## Helm Install ErrImagePull / ImagePullBackOff Error
+
+### TLDR
+
+The install hangs because we set global.imageRegistry: ghcr.io/mofe6/vulkan; Helm rewrites every sub-chart image to that registry, including third-party hooks such as the Prometheus-Operator admission-patch job. Since the rewritten image ghcr.io/mofe6/vulkan/ingress-nginx/kube-webhook-certgen:v1.4.0 does not actually exist in your registry, the job sits in an ImagePullBackOff, Helm waits, then rolls the release back. Either remove the global override, explicitly pin that one job back to registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.0, or mirror the required image into your GHCR namespace.
+
+### Diagnostic steps followed
+
+- **Checked the Job list**  
+  `kubectl get jobs -n default -o wide` showed one Job still `Running`:  
+  `vulkan-init-prometheusoper-admission-create`.
+
+- **Inspected its Pod**  
+  `kubectl describe pod -l job-name=vulkan-init-prometheusoper-admission-create` revealed the container was in `ImagePullBackOff`.
+
+- **Looked at the image reference**  
+  The failing container tried to pull  
+  `ghcr.io/mofe6/vulkan/ingress-nginx/kube-webhook-certgen:v1.4.0`.
+
+- **Connected that to our Helm values**  
+  We set
+
+  ```yaml
+  global:
+    imageRegistry: ghcr.io/mofe6/vulkan
+  ```
+
+  which causes every sub-chart image (even third-party ones) to be rewritten to our private registry.
+
+- **Identified the root cause**  
+  The rewritten image does **not** exist in our GHCR namespace, so the pull fails, the Job never completes, Helm waits until timeout and then rolls back.
+
+- **Confirmed nginx’s similar Job succeeded**  
+  The nginx admission Job uses the same image but from the official registry (`registry.k8s.io`). That one completed, proving the image itself is fine.
+
+- **Solution options**
+  1. Remove or empty `global.imageRegistry`.
+  2. Override just that Job’s image back to `registry.k8s.io`.
+  3. Mirror the required image (and any others) into `ghcr.io/mofe6/vulkan`.
+
+By eliminating the incorrect global registry override or supplying the missing image, the Job finishes, Helm proceeds, and the release succeeds.

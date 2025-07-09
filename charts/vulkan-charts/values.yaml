@@ -393,19 +393,15 @@ prometheusoperator: # This key matches the 'alias' in Chart.yaml
       # size: 4Gi # Allocate 4 GB for Grafana data
 
 
+
+
+
+
 # metallb for load balancer
-# configInLine isn't supported from v0.13.0 upward,
-# so I downgraded to v0.12.1
 metallb:
-  installCRDs: true
   enabled: true
-  configInline:
-    address-pools:
-      - name: default-pool
-        protocol: layer2
-        # Use the recommended range here
-        addresses:
-          - 192.168.8.210-192.168.8.215
+  crds:
+    create: true
 
 # secrets placeholder for vulkan api
 secrets:

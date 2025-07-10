@@ -5,20 +5,20 @@ package api.authz
 
 default allow = false        # deny-by-default
 
-allow {
+allow if {
     vulkan_admin
 }
 
 # ────────────────────────────────────────────
 #  Org-level permissions
 # ────────────────────────────────────────────
-allow {
+allow if {
     resource_in({"org", "project", "application"})
     input.action in {"read", "write"}
     has_org_role("org-admin")
 }
 
-allow {
+allow if {
     resource_in({"org", "project", "application"})
     input.action == "read"
     has_org_role("org-read")
@@ -27,13 +27,13 @@ allow {
 # ────────────────────────────────────────────
 #  Project-level permissions
 # ────────────────────────────────────────────
-allow {
+allow if {
     resource_in({"project", "application"})
     input.action in {"read", "write"}
     has_project_role("project-admin")
 }
 
-allow {
+allow if {
     resource_in({"project", "application"})
     input.action == "read"
     has_project_role("project-read")
@@ -42,13 +42,13 @@ allow {
 # ────────────────────────────────────────────
 #  Application-level permissions
 # ────────────────────────────────────────────
-allow {
+allow if {
     input.resource.kind == "application"
     input.action in {"read", "write"}
     has_app_role("app-admin")
 }
 
-allow {
+allow if {
     input.resource.kind == "application"
     input.action == "read"
     has_app_role("app-read")
@@ -58,16 +58,16 @@ allow {
 # HELPERS #
 ###########
 
-vulkan_admin {
+vulkan_admin if {
     "vulkan-admin" == input.subject.roles[_]
 }
 
-resource_in(set) {
+resource_in(set) if {
     set[input.resource.kind]
 }
 
 # Return true if the caller holds ROLE on the target Org
-has_org_role(role) {
+has_org_role(role) if {
     some item
     item := input.subject.scoped_roles[_]
     item.role == role
@@ -75,7 +75,7 @@ has_org_role(role) {
 }
 
 # Return true if the caller holds ROLE on the target Project
-has_project_role(role) {
+has_project_role(role) if {
     some item
     item := input.subject.scoped_roles[_]
     item.role == role
@@ -83,7 +83,7 @@ has_project_role(role) {
 }
 
 # Return true if the caller holds ROLE on the target Application
-has_app_role(role) {
+has_app_role(role) if {
     some item
     item := input.subject.scoped_roles[_]
     item.role == role

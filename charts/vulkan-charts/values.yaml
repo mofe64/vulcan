@@ -143,7 +143,7 @@ nats:  # alias defined in Chart.yaml
 # dex
 dex:
   enabled: true
-  env:
+  envVars:
     - name: VULKAN_API_CLIENT_SECRET
       valueFrom:
         secretKeyRef:

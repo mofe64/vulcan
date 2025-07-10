@@ -143,14 +143,17 @@ nats:  # alias defined in Chart.yaml
 # dex
 dex:
   enabled: true
-  extraVolumes:
-    - name: dex-oidc-secrets
-      secret:
-        secretName: vulkan-dex-auth          # name of existing secret
-  extraVolumeMounts:
-    - name: dex-oidc-secrets
-      mountPath: /run/secrets/dex            # arbitrary path inside the pod
-      readOnly: true
+  env:
+    - name: VULKAN_API_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: vulkan-dex-auth
+          key: apiClientSecret
+    - name: GITHUB_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: vulkan-dex-auth
+          key: githubClientSecret
   serviceAccount:
     create: true
     name: dex
@@ -193,7 +196,7 @@ dex:
 
       - id: vulkan-api
         name: Vulkan API
-        secretFile: /run/secrets/dex/apiClientSecret
+        secretEnv: VULKAN_API_CLIENT_SECRET
       
      
     connectors:
@@ -202,7 +205,7 @@ dex:
       name: GitHub
       config:
         clientID: Iv23liZbERcZNq712NAw
-        clientSecretFile: /run/secrets/dex/githubClientSecret
+        clientSecretEnv: GITHUB_CLIENT_SECRET
         redirectURI: https://dex.vulkan.strawhatengineer.com/dex/callback
 
 # Tekton

@@ -3,7 +3,7 @@ entries:
   vulkan:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-07-10T09:13:54.390255531Z"
+    created: "2025-07-10T19:30:34.878491055Z"
     dependencies:
     - alias: certmanager
       condition: certmanager.enable
@@ -41,10 +41,10 @@ entries:
       repository: https://kubernetes.github.io/ingress-nginx
       version: 4.10.0
     description: Self-hostable PaaS control-plane
-    digest: 476d1fb048923d00a48fe31342ae6e3c6af2d3a7bf256820ac9631a48d5ef217
+    digest: f40eae6b8248a3f7e3ad1ea1ec5d14333930b57f0113dc7f130a9629aeda25cb
     name: vulkan
     type: application
     urls:
     - https://mofe64.github.io/vulcan/vulkan-0.1.0.tgz
     version: 0.1.0
-generated: "2025-07-10T09:13:54.341210837Z"
+generated: "2025-07-10T19:30:34.829466602Z"

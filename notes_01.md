@@ -405,3 +405,7 @@ The install hangs because we set global.imageRegistry: ghcr.io/mofe6/vulkan; Hel
   3. Mirror the required image (and any others) into `ghcr.io/mofe6/vulkan`.
 
 By eliminating the incorrect global registry override or supplying the missing image, the Job finishes, Helm proceeds, and the release succeeds.
+
+### metal lb bootstrap
+
+On cluster to bootstrap, `chmod +x metallb-bootstrap.sh` then `./bootstrap-metallb.sh`

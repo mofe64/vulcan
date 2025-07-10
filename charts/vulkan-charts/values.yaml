@@ -143,8 +143,14 @@ nats:  # alias defined in Chart.yaml
 # dex
 dex:
   enabled: true
-  secretName: dex-auth
-  apiClientSecret: null
+  extraVolumes:
+    - name: dex-oidc-secrets
+      secret:
+        secretName: vulkan-dex-auth          # name of existing secret
+  extraVolumeMounts:
+    - name: dex-oidc-secrets
+      mountPath: /run/secrets/dex            # arbitrary path inside the pod
+      readOnly: true
   serviceAccount:
     create: true
     name: dex
@@ -157,21 +163,21 @@ dex:
       nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     ingressClassName: nginx # Matches global.ingress.className
     hosts:
-      - host: dex.{{ .Values.global.domain }}
+      - host: dex.vulkan.strawhatengineer.com
         paths:
           - path: /dex
             pathType: Prefix
     tls:
       - hosts:
-          - dex.{{ .Values.global.domain }}
+          - dex.vulkan.strawhatengineer.com
         secretName: dex-tls
     # Optional: If Dex issuer (in the config block below) did NOT include `/dex`,
     # we might need `annotations: { nginx.ingress.kubernetes.io/rewrite-target: "/$2" }`
     # and `path: /dex(/|$)(.*)` but current config has `/dex` in the issuer.
 
   # config provided here will be copied directly into dex.yaml in the dex pod.
-  config: |
-    issuer: https://dex.{{ .Values.global.domain }}/dex
+  config:
+    issuer: https://dex.vulkan.strawhatengineer.com/dex
     storage:
       type: kubernetes
       config:
@@ -182,12 +188,12 @@ dex:
         name: Vulkan UI
         public: true
         redirectURIs:
-          - https://vulkan.{{ .Values.global.domain }}/callback
+          - https://vulkan.strawhatengineer.com/callback
           
 
       - id: vulkan-api
         name: Vulkan API
-        secret: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "apiClientSecret") | b64dec | quote }}
+        secretFile: /run/secrets/dex/apiClientSecret
       
      
     connectors:
@@ -195,9 +201,9 @@ dex:
       id: github
       name: GitHub
       config:
-        clientID: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "githubClientID") | b64dec | quote }}
-        clientSecret: {{ (index (lookup "v1" "Secret" .Release.Namespace "vulkan-dex-auth").data "githubClientSecret") | b64dec | quote }}
-        redirectURI: https://dex.{{ .Values.global.domain }}/dex/callback
+        clientID: Iv23liZbERcZNq712NAw
+        clientSecretFile: /run/secrets/dex/githubClientSecret
+        redirectURI: https://dex.vulkan.strawhatengineer.com/dex/callback
 
 # Tekton
 tekton:

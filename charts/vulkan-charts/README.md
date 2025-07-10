@@ -60,7 +60,7 @@ helm install vulkan ./charts/vulkan -f values.yaml -f values-prod.yaml -f values
 ```yaml
 global:
   domain: vulkan.strawhatengineer.com
-  imageRegistry: ghcr.io/mofe6/vulkan
+  imageRegistry: ghcr.io/mofe64/vulkan
   email: your-email@example.com
 ```
 
@@ -150,10 +150,10 @@ kubectl logs -l app=dex
 
 ```bash
 # Build API image
-docker build -t ghcr.io/mofe6/vulkan-api:latest ./api
+docker build -t ghcr.io/mofe64/vulkan-api:latest ./api
 
 # Build UI image
-docker build -t ghcr.io/mofe6/vulkan-ui:latest ./ui
+docker build -t ghcr.io/mofe64/vulkan-ui:latest ./ui
 ```
 
 ## License

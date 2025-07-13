@@ -16,9 +16,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install OPA (latest)
+      - name: Get latest OPA version
+        id: opa-version
         run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/open-policy-agent/opa/releases/latest | jq -r '.tag_name')
+          echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          echo "Latest OPA version: $LATEST_VERSION"
+
+      - name: Install OPA
+        run: |
+          OPA_VERSION=${{ steps.opa-version.outputs.version }}
+          curl -L -o opa https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static
           chmod +x opa
           sudo mv opa /usr/local/bin/
 
@@ -37,7 +45,6 @@ jobs:
 
       - name: Create manifest
         run: |
-          OPA_VERSION=$(opa version | head -n1 | awk '{print $2}')
           cat > bundle/.manifest << EOF
           {
             "revision": "${{ github.sha }}",
@@ -46,7 +53,7 @@ jobs:
               "branch": "${{ github.ref_name }}",
               "commit": "${{ github.sha }}",
               "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "opa_version": "$OPA_VERSION"
+              "opa_version": "${{ steps.opa-version.outputs.version }}"
             }
           }
           EOF
@@ -71,8 +78,7 @@ jobs:
           # Create or switch to releases branch
           git checkout -B releases-opa
 
-          # Add bundle
-          cp bundle.tar.gz .
+          # Add bundle (already in current directory, no copy needed)
           git add bundle.tar.gz
           git commit -m "Update OPA bundle for commit ${{ github.sha }}" || exit 0
           git push origin releases-opa --force

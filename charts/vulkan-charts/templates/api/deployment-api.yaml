@@ -34,9 +34,9 @@ spec:
             - "--ignore=.*" # don't watch non-policy files
             - "/policies"
           volumeMounts:
-            - name: opa-bundle
-              mountPath: /policies
+            - name: opa-config
+              mountPath: /config
       volumes:
-        - name: opa-bundle
+        - name: opa-config
           configMap:
-            name: opa-policy-bundle
+            name: opa-config

@@ -76,33 +76,6 @@ api:
   service:
     type: ClusterIP
     port: 8080
-  env:
-    - name: OIDC_JWKS_URL
-      value: "https://dex.vulkan.strawhatengineer.com/dex/keys"
-    - name: K8S_IN_CLUSTER
-      value: "true"
-    - name: VULKAN_DATABASE_URL
-      valueFrom:
-        secretKeyRef:
-          name: vulkan-api-secrets
-          key: databaseUrl
-    - name: OPA_URL
-      value: "http://127.0.0.1:8181"
-    - name: OPA_POLICY_PATH
-      value: "/data/api/authz/allow"
-    - name: NATS_URL
-      value: "nats://nats:4222"
-    - name: OIDC_CLIENT_SECRET
-      valueFrom:
-        secretKeyRef:
-          name: vulkan-dex-auth
-          key: apiClientSecret
-    - name: OIDC_ISSUER
-      value: "https://dex.vulkan.strawhatengineer.com/dex"
-    - name: OIDC_CLIENT_ID
-      value: "vulkan-api"
-    - name: DEX_URL
-      value: "https://dex.vulkan.strawhatengineer.com/dex"
   ingress:
     enabled: true
     host: api.vulkan.strawhatengineer.com

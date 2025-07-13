@@ -20,7 +20,32 @@ spec:
         - name: api
           image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
           env:
-            {{- toYaml .Values.api.env | nindent 12 }}  # This renders the entire list from values.yaml
+            - name: OIDC_JWKS_URL
+              value: "{{ include "vulkan.dexInternalUrl" . }}/keys"
+            - name: OIDC_ISSUER
+              value: "{{ include "vulkan.dexExternalUrl" . }}"
+            - name: DEX_URL
+              value: "{{ include "vulkan.dexInternalUrl" . }}"
+            - name: OIDC_CLIENT_ID
+              value: "vulkan-api"
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: vulkan-dex-auth
+                  key: apiClientSecret
+            - name: K8S_IN_CLUSTER
+              value: "true"
+            - name: VULKAN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vulkan-api-secrets
+                  key: databaseUrl
+            - name: OPA_URL
+              value: "http://127.0.0.1:8181"
+            - name: OPA_POLICY_PATH
+              value: "/data/api/authz/allow"
+            - name: NATS_URL
+              value: "nats://nats:4222"
           imagePullPolicy: {{ .Values.api.image.pullPolicy | default "IfNotPresent" }} # Removed | quote
           ports:
             - name: http

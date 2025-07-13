@@ -84,10 +84,30 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # Create or switch to releases branch
-          git checkout -B releases-opa
+          # Create a clean orphan branch (no history, no source files)
+          git checkout --orphan releases-opa
 
-          # Add bundle (already in current directory, no copy needed)
+          # Remove all files from staging
+          git rm -rf .
+
+          # Add only the bundle
           git add bundle.tar.gz
-          git commit -m "Update OPA bundle for commit ${{ github.sha }}" || exit 0
+
+          # Create a minimal README for the releases branch
+          cat > README.md << EOF
+          # OPA Bundle Releases
+
+          This branch contains compiled OPA policy bundles for the Vulkan project.
+
+          - Latest bundle: \`bundle.tar.gz\`
+          - Generated from commit: ${{ github.sha }}
+          - Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          ## Usage
+
+          This bundle is automatically consumed by OPA instances via the git bundle loader.
+          EOF
+
+          git add README.md
+          git commit -m "Update OPA bundle for commit ${{ github.sha }}"
           git push origin releases-opa --force

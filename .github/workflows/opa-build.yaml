@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "policies/**"
+      - ".github/workflows/opa-build.yaml"
   pull_request:
     branches:
       - main

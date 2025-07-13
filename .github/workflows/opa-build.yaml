@@ -1,0 +1,78 @@
+name: Build OPA Bundle
+
+on:
+  push:
+    branches: [main]
+    paths: ["policies/**"]
+  pull_request:
+    branches: [main]
+    paths: ["policies/**"]
+
+jobs:
+  build-bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install OPA (latest)
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static
+          chmod +x opa
+          sudo mv opa /usr/local/bin/
+
+      - name: Verify OPA installation
+        run: opa version
+
+      - name: Validate policies
+        run: |
+          opa fmt --diff policies/
+          opa test policies/
+
+      - name: Create bundle structure
+        run: |
+          mkdir -p bundle/api/authz
+          cp -r policies/* bundle/api/authz/
+
+      - name: Create manifest
+        run: |
+          OPA_VERSION=$(opa version | head -n1 | awk '{print $2}')
+          cat > bundle/.manifest << EOF
+          {
+            "revision": "${{ github.sha }}",
+            "roots": ["api"],
+            "metadata": {
+              "branch": "${{ github.ref_name }}",
+              "commit": "${{ github.sha }}",
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "opa_version": "$OPA_VERSION"
+            }
+          }
+          EOF
+
+      - name: Create bundle
+        run: |
+          cd bundle
+          tar -czf ../bundle.tar.gz .
+
+      - name: Upload bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opa-bundle
+          path: bundle.tar.gz
+
+      - name: Commit bundle to releases branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          # Create or switch to releases branch
+          git checkout -B releases-opa
+
+          # Add bundle
+          cp bundle.tar.gz .
+          git add bundle.tar.gz
+          git commit -m "Update OPA bundle for commit ${{ github.sha }}" || exit 0
+          git push origin releases-opa --force

@@ -114,6 +114,16 @@ api:
       # in your Ingress's TLS block. This way we don't have to manually create the Certificate resource.
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
 
+opa:
+  git:
+    owner: "mofe64"  
+    repo: "vulcan"
+    branch: "releases-opa"
+    polling:
+      min: 30
+      max: 60
+
+
 # vulkan cert-manager
 certmanager: # alias in Chart.yaml
   enable: true 

@@ -21,7 +21,7 @@ spec:
           image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
           env:
             {{- toYaml .Values.api.env | nindent 12 }}  # This renders the entire list from values.yaml
-          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }} # Removed | quote
+          imagePullPolicy: {{ .Values.api.image.pullPolicy | default "IfNotPresent" }} # Removed | quote
           ports:
             - name: http
               containerPort: 8080
@@ -31,8 +31,7 @@ spec:
             - "run"
             - "--server"
             - "--addr=0.0.0.0:8181"
-            - "--ignore=.*" # don't watch non-policy files
-            - "/policies"
+            - "--config-file=/config/config.yaml"
           volumeMounts:
             - name: opa-config
               mountPath: /config

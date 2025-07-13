@@ -51,12 +51,12 @@ ui:
   # env is in list form
   env:
     - name: VITE_OIDC_ISSUER
-      value: "https://dex.{{ .Values.global.domain }}/dex"
+      value: "https://dex.vulkan.strawhatengineer.com/dex"
     - name: VITE_OIDC_CLIENT_ID
       value: "vulkan-ui"
     # the UI’s redirect URI must match what we put in staticClients
     - name: VITE_OIDC_REDIRECT_URI
-      value: "https://vulkan.{{ .Values.global.domain }}/callback"
+      value: "https://vulkan.strawhatengineer.com/callback"
     - name: VITE_VULKAN_API_BASE
       value: "https://api.vulkan.strawhatengineer.com"
     # auth url is ideally used to redirect the user to the auth page (login page)
@@ -64,7 +64,7 @@ ui:
     # and get the auth url from the issuer url as well as other oidc endpoints.
     # so i dont think this is needed, but i'll leave it here for now.
     - name: VITE_VULKAN_OIDC_AUTH_URL
-      value: "https://dex.{{ .Values.global.domain }}/dex/auth"
+      value: "https://dex.vulkan.strawhatengineer.com/dex/auth"
 
 # vulkan api
 api:
@@ -77,11 +77,11 @@ api:
     type: ClusterIP
     port: 8080
   env:
-    - name: OIDCJWKSURL
-      value: "https://dex.{{ .Values.global.domain }}/dex/keys"
+    - name: OIDC_JWKS_URL
+      value: "https://dex.vulkan.strawhatengineer.com/dex/keys"
     - name: K8S_IN_CLUSTER
       value: "true"
-    - name: DATABASE_URL
+    - name: VULKAN_DATABASE_URL
       valueFrom:
         secretKeyRef:
           name: vulkan-api-secrets
@@ -98,9 +98,11 @@ api:
           name: vulkan-dex-auth
           key: apiClientSecret
     - name: OIDC_ISSUER
-      value: "https://dex.{{ .Values.global.domain }}/dex"
+      value: "https://dex.vulkan.strawhatengineer.com/dex"
     - name: OIDC_CLIENT_ID
       value: "vulkan-api"
+    - name: DEX_URL
+      value: "https://dex.vulkan.strawhatengineer.com/dex"
   ingress:
     enabled: true
     host: api.vulkan.strawhatengineer.com

@@ -68,7 +68,6 @@ resource_in(set) if {
 
 # Return true if the caller holds ROLE on the target Org
 has_org_role(role) if {
-	some item
 	item := input.subject.scoped_roles[_]
 	item.role == role
 	item.org_id == input.resource.org_id
@@ -76,7 +75,6 @@ has_org_role(role) if {
 
 # Return true if the caller holds ROLE on the target Project
 has_project_role(role) if {
-	some item
 	item := input.subject.scoped_roles[_]
 	item.role == role
 	item.project_id == input.resource.project_id
@@ -84,7 +82,6 @@ has_project_role(role) if {
 
 # Return true if the caller holds ROLE on the target Application
 has_app_role(role) if {
-	some item
 	item := input.subject.scoped_roles[_]
 	item.role == role
 	item.app_id == input.resource.app_id

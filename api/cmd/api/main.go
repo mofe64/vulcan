@@ -91,6 +91,7 @@ func initializeDependencies() *DependencyContainer {
 }
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	// r.Use(cors.Default())
 	r.Use(gin.Recovery())

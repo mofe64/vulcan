@@ -179,3 +179,42 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     $hasValidating = true }}{{- end }}
 {{- end }}
 {{ $hasValidating }}}}{{- end }}
+
+
+{{/*
+Dex service name (from dependency chart)
+*/}}
+{{- define "vulkan.dexServiceName" -}}
+{{- if .Values.dex.enabled -}}
+{{- printf "%s-dex" .Release.Name -}}
+{{- else -}}
+{{- printf "%s-dex" .Release.Name -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Dex service port (from dependency chart)
+*/}}
+{{- define "vulkan.dexServicePort" -}}
+{{- if .Values.dex.service -}}
+{{- .Values.dex.service.port | default 5556 -}}
+{{- else -}}
+5556
+{{- end -}}
+{{- end -}}
+
+
+{{/*
+Dex internal URL
+*/}}
+{{- define "vulkan.dexInternalUrl" -}}
+{{- printf "http://%s:%s/dex" (include "vulkan.dexServiceName" .) (include "vulkan.dexServicePort" .) -}}
+{{- end -}}
+
+
+{{/*
+Dex external URL
+*/}}
+{{- define "vulkan.dexExternalUrl" -}}
+{{- printf "https://dex.%s/dex" .Values.global.domain -}}
+{{- end -}}

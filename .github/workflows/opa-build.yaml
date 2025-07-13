@@ -2,11 +2,16 @@ name: Build OPA Bundle
 
 on:
   push:
-    branches: [main]
-    paths: ["policies/**"]
+    branches:
+      - main
+    paths:
+      - "policies/**"
   pull_request:
-    branches: [main]
-    paths: ["policies/**"]
+    branches:
+      - main
+    paths:
+      - "policies/**"
+      - ".github/workflows/opa-build.yaml"
 
 jobs:
   build-bundle:

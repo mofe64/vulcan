@@ -47,6 +47,7 @@ ui:
     tlsSecret: vulkan-tls      # cert-manager will fill this
     annotations:  # extra NGINX tweaks (optional)             
       nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
       cert-manager.io/cluster-issuer: "letsencrypt-prod"
   # env is in list form
   env:
@@ -81,6 +82,7 @@ api:
     host: api.vulkan.strawhatengineer.com
     tlsSecret: vulkan-api-tls  # cert-manager will fill this
     annotations:               # extra NGINX tweaks
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
       nginx.ingress.kubernetes.io/proxy-body-size: "10m"
       # use ingres shim in cert manager to create the underlying Certificate resource,
       # and infer the dnsNames from your Ingress hosts and also use the secretName specified 

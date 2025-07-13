@@ -29,7 +29,7 @@ serviceAccount:
 ui:
   replicas: 2
   image:
-    repository: ghcr.io/mofe64/vulkan/ui
+    repository: ghcr.io/mofe64/vulcan/ui
     tag: latest
     pullPolicy: IfNotPresent
   apiBase: "https://api.vulkan.strawhatengineer.com"
@@ -69,7 +69,7 @@ ui:
 # vulkan api
 api:
   image:
-    repository: ghcr.io/mofe64/vulkan/api
+    repository: ghcr.io/mofe64/vulcan/api
     tag: latest
     pullPolicy: IfNotPresent
   replicas: 3
@@ -260,7 +260,7 @@ controllerManager:
   replicas: 1
   container:
     image:
-      repository: ghcr.io/mofe64/vulkan/operator
+      repository: ghcr.io/mofe64/vulcan/operator
       tag: latest
     args:
       - "--leader-elect"

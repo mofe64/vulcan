@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-config
+  labels:
+    {{- include "vulkan.commonResourceLabels" . | nindent 4 }}
+    {{- include "vulkan.componentSelectorLabels" (dict "context" . "component" "api-server") | nindent 4 }}
+data:
+  config.yaml: |
+    services:
+      github:
+        url: https://github.com
+            
+    bundles:
+      vulkan-policies:
+        service: github
+        resource: "{{ .Values.opa.git.owner }}/{{ .Values.opa.git.repo }}/raw/{{ .Values.opa.git.branch | default "releases" }}/bundle.tar.gz"
+        polling:
+          min_delay_seconds: {{ .Values.opa.git.polling.min | default 30 }}
+          max_delay_seconds: {{ .Values.opa.git.polling.max | default 60 }}
+        
+    decision_logs:
+      console: true

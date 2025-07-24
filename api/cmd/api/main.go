@@ -40,39 +40,74 @@ type DependencyContainer struct {
 func initializeDependencies() *DependencyContainer {
 
 	log := logger.Get()
-	// short-lived context for start-up ops
-	startupCtx, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelTimeout()
+	//  we use a longer-lived context for the entire initialization process,
+	// and individual operations use shorter timeouts.
+	initCtx := context.Background()
 
 	// load config
-
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
 	// connect to db
-	database, err := db.Connect(startupCtx, cfg.DBURL)
+	dbCtx, dbCancel := context.WithTimeout(initCtx, 10*time.Second)
+	defer dbCancel()
+	database, err := db.Connect(dbCtx, cfg.DBURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database", zap.Error(err))
 	}
 
 	// run migrations
-	if err := migrations.RunMigrations(startupCtx, cfg.DBURL, log); err != nil {
+	migCtx, migCancel := context.WithTimeout(initCtx, 30*time.Second)
+	defer migCancel()
+	if err := migrations.RunMigrations(migCtx, cfg.DBURL, log); err != nil {
 		log.Fatal("DB migration failed", zap.Error(err))
 	}
 
-	// build oidc (dex) auth
-	auth, err := auth.BuildVulkanAuth(startupCtx, cfg)
-	if err != nil {
-		log.Fatal("Failed to build Vulkan auth", zap.Error(err))
+	// oidc auth initialization with retry logic,
+	var vulkanAuth *auth.VulkanAuth
+	maxRetries := 12 // 12 retries * 10 seconds = 2 minutes total wait time
+	retryDelay := 10 * time.Second
+
+	log.Info("Attempting to initialize OIDC provider...")
+	for i := range maxRetries {
+		// create a short-lived context for each attempt
+		authCtx, authCancel := context.WithTimeout(initCtx, 10*time.Second)
+		defer authCancel()
+
+		vulkanAuth, err = auth.BuildVulkanAuth(authCtx, cfg)
+		if err == nil {
+			log.Info("Successfully initialized OIDC provider.")
+			break
+		}
+
+		// if there's an error, log it as a warning and prepare to retry
+		log.Warn("Failed to initialize OIDC provider, will retry...",
+			zap.Int("attempt", i+1),
+			zap.Int("max_attempts", maxRetries),
+			zap.Error(err),
+		)
+
+		// don't sleep on the final attempt
+		if i < maxRetries-1 {
+			time.Sleep(retryDelay)
+		}
 	}
 
-	//create k8s client
-	k8sClient, err := k8s.New(startupCtx, cfg.InCluster)
+	// if after all retries we still have an error, then it's a fatal problem.
+	if err != nil {
+		log.Fatal("Could not initialize OIDC provider after multiple retries", zap.Error(err))
+	}
+
+	// create k8s client
+	k8sCtx, k8sCancel := context.WithTimeout(initCtx, 10*time.Second)
+	defer k8sCancel()
+	k8sClient, err := k8s.New(k8sCtx, cfg.InCluster)
 	if err != nil {
 		log.Fatal("Failed to create Kubernetes client", zap.Error(err))
 	}
+
 	// create event bus
 	bus, err := events.NewEventBus(cfg.NATS_URL)
 	if err != nil {
@@ -81,13 +116,12 @@ func initializeDependencies() *DependencyContainer {
 
 	return &DependencyContainer{
 		Database:  database,
-		Auth:      auth,
+		Auth:      vulkanAuth, // Use the successfully initialized auth object
 		K8sClient: k8sClient,
 		EventBus:  bus,
 		log:       log,
 		cfg:       cfg,
 	}
-
 }
 
 func main() {
